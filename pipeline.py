@@ -1,16 +1,17 @@
 """
 BioTrove France-Aves pipeline.
 
-Runs the three preparation steps in order:
+Runs the four preparation steps in order:
   1. Fetch French bird species from GBIF  → data/french_species.csv
   2. Download BioTrove metadata from HF   → data/biotrove_metadata/
   3. Filter metadata to French Aves       → data/biotrove_france_aves.parquet
+  4. Download images (1000/species cap)   → data/images/ + data/image_index.parquet
 
 Each step is skipped if its output already exists (re-run safe).
 
 Usage:
     python pipeline.py              # run all steps
-    python pipeline.py --step 1     # run a single step
+    python pipeline.py --step 4     # run a single step
     python pipeline.py --force      # ignore existing outputs and re-run all
 """
 
@@ -20,6 +21,7 @@ from pathlib import Path
 from src.fetch_french_species import fetch_french_species, OUTPUT_PATH as SPECIES_PATH
 from src.download_metadata import download_biotrove_metadata, OUTPUT_DIR as METADATA_DIR
 from src.filter_dataset import filter_to_french_aves, OUTPUT_PATH as FILTERED_PATH
+from src.download_images import download_images, INDEX_PATH as IMAGE_INDEX_PATH
 
 
 STEPS = {
@@ -37,6 +39,11 @@ STEPS = {
         "name": "Filter BioTrove metadata to French Aves",
         "output": FILTERED_PATH,
         "fn": filter_to_french_aves,
+    },
+    4: {
+        "name": "Download images (1000/species cap)",
+        "output": IMAGE_INDEX_PATH,
+        "fn": download_images,
     },
 }
 
@@ -65,7 +72,7 @@ def main() -> None:
         "--step",
         type=int,
         choices=STEPS.keys(),
-        help="Run a single step (1, 2, or 3). Default: run all steps.",
+        help="Run a single step (1–4). Default: run all steps.",
     )
     parser.add_argument(
         "--force",
@@ -79,9 +86,10 @@ def main() -> None:
         run_step(step_id, force=args.force)
 
     print("\nPipeline complete.")
-    print(f"  Species list : {SPECIES_PATH}")
-    print(f"  Filtered index: {FILTERED_PATH}")
-    print("\nNext step: bulk-download images using biotrove-process.")
+    print(f"  Species list   : {SPECIES_PATH}")
+    print(f"  Filtered index : {FILTERED_PATH}")
+    print(f"  Image index    : {IMAGE_INDEX_PATH}")
+    print("\nNext step: python train.py")
 
 
 if __name__ == "__main__":
