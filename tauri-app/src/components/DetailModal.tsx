@@ -129,7 +129,7 @@ export default function DetailModal({
                   }`}
                 >
                   <img
-                    src={convertFileSrc(p.path)}
+                    src={convertFileSrc(p.result.thumbPath ?? p.path)}
                     className="w-full h-full object-cover"
                   />
                 </button>

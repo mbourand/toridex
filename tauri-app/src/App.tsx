@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
 
-import { Species, ScanResults, UserPhoto, FilterMode, SortMode } from "./types";
+import { Species, ScanResults, AppConfig, UserPhoto, FilterMode, SortMode } from "./types";
 import SearchFilterBar from "./components/SearchFilterBar";
 import ScanPanel from "./components/ScanPanel";
 import SpeciesCard from "./components/SpeciesCard";
@@ -27,7 +27,7 @@ export default function App() {
     current: number;
     total: number;
   } | null>(null);
-  const [folder, setFolder] = useState("");
+  const [config, setConfig] = useState<AppConfig>({ folders: [] });
 
   const [selected, setSelected] = useState<Species | null>(null);
 
@@ -42,7 +42,12 @@ export default function App() {
         setSpecies(JSON.parse(dbJson));
 
         const resultsJson = await invoke<string | null>("load_scan_results");
-        if (resultsJson) setScanResults(JSON.parse(resultsJson));
+        if (resultsJson) {
+          setScanResults(JSON.parse(resultsJson));
+        }
+
+        const configJson = await invoke<string>("load_config");
+        setConfig(JSON.parse(configJson));
       } catch (e) {
         setError(String(e));
       } finally {
@@ -149,21 +154,50 @@ export default function App() {
     return list;
   }, [species, filter, search, sort, photosBySpecies]);
 
-  async function handlePickFolder() {
+  // Auto-scan on launch if folders are configured
+  const autoScannedRef = useRef(false);
+  useEffect(() => {
+    if (!loading && config.folders.length > 0 && !scanning && !autoScannedRef.current) {
+      autoScannedRef.current = true;
+      handleScan(config.folders);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, config.folders]);
+
+  async function handleAddFolder() {
     const picked = await invoke<string | null>("open_folder_dialog");
-    if (picked) setFolder(picked);
+    if (picked && !config.folders.includes(picked)) {
+      const updated = { folders: [...config.folders, picked] };
+      setConfig(updated);
+      await invoke("save_config", { config: JSON.stringify(updated) });
+    }
   }
 
-  async function handleScan() {
-    if (!folder || scanning) return;
+  async function handleRemoveFolder(folder: string) {
+    const updated = { folders: config.folders.filter(f => f !== folder) };
+    setConfig(updated);
+    await invoke("save_config", { config: JSON.stringify(updated) });
+    await invoke("delete_photos_by_folder", { folder });
+
+    // Reload from SQLite
+    const resultsJson = await invoke<string | null>("load_scan_results");
+    setScanResults(resultsJson ? JSON.parse(resultsJson) : null);
+  }
+
+  async function handleScan(folders?: string[]) {
+    const foldersToScan = folders ?? config.folders;
+    if (foldersToScan.length === 0 || scanning) return;
     setScanning(true);
     setProgress({ current: 0, total: 0 });
     try {
-      await invoke("scan_photos_folder", { folder });
+      await invoke("scan_photos_folder", { folders: foldersToScan });
     } catch (e) {
+      console.error(e);
+    } finally {
       setScanning(false);
       setProgress(null);
-      console.error(e);
+      const resultsJson = await invoke<string | null>("load_scan_results");
+      setScanResults(resultsJson ? JSON.parse(resultsJson) : null);
     }
   }
 
@@ -203,9 +237,10 @@ export default function App() {
       <ScanPanel
         scanning={scanning}
         progress={progress}
-        lastFolder={folder || scanResults?.folder || ""}
-        onPickFolder={handlePickFolder}
-        onScan={handleScan}
+        folders={config.folders}
+        onAddFolder={handleAddFolder}
+        onRemoveFolder={handleRemoveFolder}
+        onScan={() => handleScan()}
       />
 
       {/* Search/filter bar */}

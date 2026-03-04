@@ -22,7 +22,7 @@ export default function SpeciesCard({ species, photos, dataDir, onClick }: Props
 
   let imgSrc: string | null = null;
   if (best) {
-    imgSrc = convertFileSrc(best.path);
+    imgSrc = convertFileSrc(best.result.thumbPath ?? best.path);
   } else if (species.referencePhotoId !== null) {
     imgSrc = convertFileSrc(`${dataDir}/images/${species.referencePhotoId}.jpg`);
   }

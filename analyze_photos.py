@@ -160,7 +160,8 @@ def collect_images(folder: Path) -> list[Path]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--folder", required=True)
+    parser.add_argument("--folder", action="append", required=True,
+                        help="Folder to scan (can be repeated for multiple folders)")
     parser.add_argument("--output", required=True)
     parser.add_argument("--checkpoint", default=str(BEST_MODEL_PATH))
     parser.add_argument("--no-detect", action="store_true")
@@ -169,6 +170,8 @@ def main() -> None:
                         help="Minimum top-1 confidence to assign a species. Below this, "
                              "the photo is kept but marked as __unknown__.")
     parser.add_argument("--top", type=int, default=1)
+    parser.add_argument("--incremental", action="store_true",
+                        help="Skip files unchanged since last scan (by mtime+size)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -179,6 +182,55 @@ def main() -> None:
     idx_to_sciname = {v: k for k, v in label_map.items()}
     num_classes = len(label_map)
 
+    # Collect images from all folders
+    folders = [Path(f) for f in args.folder]
+    image_paths: list[Path] = []
+    for folder in folders:
+        image_paths.extend(collect_images(folder))
+    image_paths.sort()
+
+    # Incremental: load previous results, skip unchanged files
+    carried_results: dict[str, dict] = {}
+    if args.incremental and Path(args.output).exists():
+        with open(args.output, "r", encoding="utf-8") as f:
+            prev_data = json.load(f)
+        previous_photos = prev_data.get("photos", {})
+
+        to_process: list[Path] = []
+        for path in image_paths:
+            path_key = str(path.resolve())
+            prev = previous_photos.get(path_key)
+            if prev is not None:
+                try:
+                    stat = path.stat()
+                    if (prev.get("file_mtime") == stat.st_mtime
+                            and prev.get("file_size") == stat.st_size):
+                        carried_results[path_key] = prev
+                        continue
+                except OSError:
+                    pass
+            to_process.append(path)
+    else:
+        to_process = image_paths
+
+    total = len(to_process)
+    carried = len(carried_results)
+    print(f"Found {len(image_paths)} images, {carried} unchanged, {total} to analyze", flush=True)
+
+    if total == 0:
+        # Nothing new to analyze — write carried results and exit
+        output_data = {
+            "folders": [str(f) for f in folders],
+            "scanned_at": datetime.now(timezone.utc).isoformat(),
+            "photos": carried_results,
+        }
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+        print(f"DONE:0", flush=True)
+        return
+
     # Load models
     print("Loading classifier...", flush=True)
     classifier = BirdClassifier.load(Path(args.checkpoint), num_classes).to(device)
@@ -186,15 +238,9 @@ def main() -> None:
 
     detector, det_transform = (None, None) if args.no_detect else load_detector(device)
 
-    # Collect images (search recursively)
-    folder = Path(args.folder)
-    image_paths = collect_images(folder)
-    total = len(image_paths)
-    print(f"Found {total} images", flush=True)
-
     results: dict[str, dict] = {}
 
-    for n, path in enumerate(image_paths, 1):
+    for n, path in enumerate(to_process, 1):
         print(f"PROGRESS:{n}:{total}", flush=True)
         try:
             img = Image.open(path).convert("RGB")
@@ -205,7 +251,16 @@ def main() -> None:
         if detector is not None:
             bbox, _ = detect_bird(img, detector, det_transform, device, args.detect_thresh)
             if bbox is None:
-                continue  # no bird detected — skip this image
+                # Record as skipped so incremental won't re-process
+                entry: dict = {"species_idx": -1, "scientificName": "__skipped__", "confidence": 0.0}
+                try:
+                    stat = path.stat()
+                    entry["file_mtime"] = stat.st_mtime
+                    entry["file_size"] = stat.st_size
+                except OSError:
+                    pass
+                results[str(path.resolve())] = entry
+                continue
         else:
             bbox = None
 
@@ -241,18 +296,29 @@ def main() -> None:
                 for p, i in zip(top_probs[0], top_indices[0])
             ]
 
-        results[str(path)] = entry
+        # Store file metadata for incremental scanning
+        try:
+            stat = path.stat()
+            entry["file_mtime"] = stat.st_mtime
+            entry["file_size"] = stat.st_size
+        except OSError:
+            pass
 
-    output = {
-        "folder": str(folder),
+        results[str(path.resolve())] = entry
+
+    # Merge carried + new results
+    all_results = {**carried_results, **results}
+
+    output_data = {
+        "folders": [str(f) for f in folders],
         "scanned_at": datetime.now(timezone.utc).isoformat(),
-        "photos": results,
+        "photos": all_results,
     }
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+        json.dump(output_data, f, ensure_ascii=False, indent=2)
 
     print(f"DONE:{total}", flush=True)
 

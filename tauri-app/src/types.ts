@@ -15,6 +15,9 @@ export interface PhotoResult {
   exif_lat?: number;
   exif_lon?: number;
   top_k?: Array<{ scientificName: string; confidence: number }>;
+  thumbPath?: string;
+  userSpecies?: string;
+  modelSpecies?: string;
 }
 
 export interface UserPhoto {
@@ -23,9 +26,13 @@ export interface UserPhoto {
 }
 
 export interface ScanResults {
-  folder: string;
+  folders: string[];
   scanned_at: string;
   photos: Record<string, PhotoResult>;
+}
+
+export interface AppConfig {
+  folders: string[];
 }
 
 export type FilterMode = "all" | "found" | "not-found";
