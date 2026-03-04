@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod scan;
 mod thumbs;
 
 use db::DbState;
@@ -23,7 +24,7 @@ pub fn run() {
             commands::load_species_db,
             commands::load_scan_results,
             commands::get_data_dir,
-            commands::scan_photos_folder,
+            scan::scan_photos_folder,
             commands::open_folder_dialog,
             commands::load_config,
             commands::save_config,
