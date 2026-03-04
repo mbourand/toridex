@@ -12,8 +12,6 @@ Usage:
 
 import argparse
 import json
-import struct
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -65,10 +63,6 @@ def _pad_to_square(img: Image.Image) -> Image.Image:
 # ---------------------------------------------------------------------------
 # EXIF helpers
 # ---------------------------------------------------------------------------
-
-def _exif_tag_map() -> dict[int, str]:
-    return {v: k for k, v in ExifTags.TAGS.items() if isinstance(v, str)}
-
 
 def _dms_to_decimal(dms, ref: str) -> float | None:
     """Convert degrees/minutes/seconds tuple to decimal degrees."""

@@ -8,7 +8,6 @@ export interface Species {
 }
 
 export interface PhotoResult {
-  species_idx: number;
   scientificName: string;
   confidence: number;
   exif_date?: string;
@@ -23,12 +22,6 @@ export interface PhotoResult {
 export interface UserPhoto {
   path: string;
   result: PhotoResult;
-}
-
-export interface ScanResults {
-  folders: string[];
-  scanned_at: string;
-  photos: Record<string, PhotoResult>;
 }
 
 export interface AppConfig {

@@ -11,10 +11,9 @@ use crate::thumbs;
 /// Absolute path to the bird-classification project root (resolved at compile time).
 const PROJECT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
-fn project_dir() -> PathBuf {
-    PathBuf::from(PROJECT_DIR)
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(PROJECT_DIR))
+pub(crate) fn project_dir() -> PathBuf {
+    let p = PathBuf::from(PROJECT_DIR);
+    p.canonicalize().unwrap_or(p)
 }
 
 /// Python executable: prefer the project's venv, fall back to PATH.
@@ -28,26 +27,25 @@ fn python_exe() -> PathBuf {
 }
 
 #[tauri::command]
-pub fn load_species_db() -> Result<String, String> {
+pub fn load_species_db() -> Result<serde_json::Value, String> {
     let path = project_dir().join("data/species_db.json");
-    std::fs::read_to_string(&path)
-        .map_err(|e| format!("Could not read species_db.json: {e}"))
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Could not read species_db.json: {e}"))?;
+    serde_json::from_str(&content).map_err(|e| format!("Invalid species_db.json: {e}"))
 }
 
 #[tauri::command]
-pub fn load_scan_results(db: tauri::State<'_, DbState>) -> Result<Option<String>, String> {
+pub fn load_scan_results(db: tauri::State<'_, DbState>) -> Result<Option<serde_json::Value>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let photos = db::get_all_photos(&conn);
     if photos.is_empty() {
         return Ok(None);
     }
-    let folders = db::get_config_folders(&conn);
     let data_dir = project_dir().join("data");
 
     let mut photos_map = serde_json::Map::new();
     for photo in &photos {
         let mut entry = serde_json::Map::new();
-        entry.insert("species_idx".into(), photo.species_idx.into());
         entry.insert(
             "scientificName".into(),
             photo.scientific_name.clone().into(),
@@ -82,15 +80,7 @@ pub fn load_scan_results(db: tauri::State<'_, DbState>) -> Result<Option<String>
         photos_map.insert(photo.path.clone(), serde_json::Value::Object(entry));
     }
 
-    let result = serde_json::json!({
-        "folders": folders,
-        "scanned_at": "",
-        "photos": photos_map,
-    });
-
-    Ok(Some(
-        serde_json::to_string(&result).map_err(|e| e.to_string())?,
-    ))
+    Ok(Some(serde_json::Value::Object(photos_map)))
 }
 
 #[tauri::command]
@@ -108,32 +98,17 @@ pub async fn open_folder_dialog(app: AppHandle) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn load_config(db: tauri::State<'_, DbState>) -> Result<String, String> {
+pub fn load_config(db: tauri::State<'_, DbState>) -> Result<serde_json::Value, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let folders = db::get_config_folders(&conn);
-    serde_json::to_string(&serde_json::json!({ "folders": folders })).map_err(|e| e.to_string())
+    Ok(serde_json::json!({ "folders": db::get_config_folders(&conn) }))
 }
 
 #[tauri::command]
-pub fn save_config(db: tauri::State<'_, DbState>, config: String) -> Result<(), String> {
+pub fn save_config(db: tauri::State<'_, DbState>, folders: Vec<String>) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let parsed: serde_json::Value =
-        serde_json::from_str(&config).map_err(|e| e.to_string())?;
-    let folders: Vec<String> = parsed["folders"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
     db::set_config_folders(&conn, &folders).map_err(|e| e.to_string())
 }
 
-/// Scan events emitted to the frontend:
-///   "scan-progress"  →  { current: u32, total: u32 }
-///   "scan-complete"  →  null
-///   "scan-error"     →  string
 #[tauri::command]
 pub async fn scan_photos_folder(
     app: AppHandle,
@@ -184,12 +159,10 @@ pub async fn scan_photos_folder(
                 );
             }
         }
-        // Don't emit scan-complete on DONE — we do it after import + thumbs
     }
 
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
-        let _ = app.emit("scan-error", "Python process exited with error");
         return Err("Python scan failed".into());
     }
 
@@ -213,9 +186,6 @@ pub async fn scan_photos_folder(
             let _ = db::set_thumb_path(&conn, orig, thumb_name);
         }
     }
-
-    // Phase 4: Emit completion
-    let _ = app.emit("scan-complete", serde_json::json!(null));
 
     Ok(())
 }

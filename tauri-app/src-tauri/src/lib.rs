@@ -7,11 +7,7 @@ use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let project_dir = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-        .canonicalize()
-        .unwrap_or_else(|_| {
-            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-        });
+    let project_dir = commands::project_dir();
 
     // Ensure data directory exists
     std::fs::create_dir_all(project_dir.join("data")).ok();

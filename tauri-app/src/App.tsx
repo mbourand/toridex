@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
 
-import { Species, ScanResults, AppConfig, UserPhoto, FilterMode, SortMode } from "./types";
+import { Species, PhotoResult, AppConfig, UserPhoto, FilterMode, SortMode } from "./types";
 import SearchFilterBar from "./components/SearchFilterBar";
 import ScanPanel from "./components/ScanPanel";
 import SpeciesCard from "./components/SpeciesCard";
@@ -13,7 +13,7 @@ import UnknownPanel from "./components/UnknownPanel";
 
 export default function App() {
   const [species, setSpecies] = useState<Species[]>([]);
-  const [scanResults, setScanResults] = useState<ScanResults | null>(null);
+  const [scanResults, setScanResults] = useState<Record<string, PhotoResult> | null>(null);
   const [dataDir, setDataDir] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,16 +38,9 @@ export default function App() {
         const dir = await invoke<string>("get_data_dir");
         setDataDir(dir);
 
-        const dbJson = await invoke<string>("load_species_db");
-        setSpecies(JSON.parse(dbJson));
-
-        const resultsJson = await invoke<string | null>("load_scan_results");
-        if (resultsJson) {
-          setScanResults(JSON.parse(resultsJson));
-        }
-
-        const configJson = await invoke<string>("load_config");
-        setConfig(JSON.parse(configJson));
+        setSpecies(await invoke<Species[]>("load_species_db"));
+        setScanResults(await invoke<Record<string, PhotoResult> | null>("load_scan_results"));
+        setConfig(await invoke<AppConfig>("load_config"));
       } catch (e) {
         setError(String(e));
       } finally {
@@ -57,28 +50,13 @@ export default function App() {
     load();
   }, []);
 
-  // Listen for scan events
+  // Listen for real-time scan progress
   useEffect(() => {
-    const unlistenProgress = listen<{ current: number; total: number }>(
+    const unlisten = listen<{ current: number; total: number }>(
       "scan-progress",
       (e) => setProgress(e.payload),
     );
-    const unlistenComplete = listen("scan-complete", async () => {
-      setScanning(false);
-      setProgress(null);
-      const resultsJson = await invoke<string | null>("load_scan_results");
-      if (resultsJson) setScanResults(JSON.parse(resultsJson));
-    });
-    const unlistenError = listen("scan-error", () => {
-      setScanning(false);
-      setProgress(null);
-    });
-
-    return () => {
-      unlistenProgress.then((f) => f());
-      unlistenComplete.then((f) => f());
-      unlistenError.then((f) => f());
-    };
+    return () => { unlisten.then((f) => f()); };
   }, []);
 
   // scientificName → display name lookup (used by DetailModal for top-k labels)
@@ -95,7 +73,7 @@ export default function App() {
   const photosBySpecies = useMemo<Map<string, UserPhoto[]>>(() => {
     const map = new Map<string, UserPhoto[]>();
     if (!scanResults) return map;
-    for (const [path, result] of Object.entries(scanResults.photos)) {
+    for (const [path, result] of Object.entries(scanResults)) {
       const key = result.scientificName;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push({ path, result });
@@ -169,19 +147,16 @@ export default function App() {
     if (picked && !config.folders.includes(picked)) {
       const updated = { folders: [...config.folders, picked] };
       setConfig(updated);
-      await invoke("save_config", { config: JSON.stringify(updated) });
+      await invoke("save_config", { folders: updated.folders });
     }
   }
 
   async function handleRemoveFolder(folder: string) {
     const updated = { folders: config.folders.filter(f => f !== folder) };
     setConfig(updated);
-    await invoke("save_config", { config: JSON.stringify(updated) });
+    await invoke("save_config", { folders: updated.folders });
     await invoke("delete_photos_by_folder", { folder });
-
-    // Reload from SQLite
-    const resultsJson = await invoke<string | null>("load_scan_results");
-    setScanResults(resultsJson ? JSON.parse(resultsJson) : null);
+    setScanResults(await invoke<Record<string, PhotoResult> | null>("load_scan_results"));
   }
 
   async function handleScan(folders?: string[]) {
@@ -196,8 +171,7 @@ export default function App() {
     } finally {
       setScanning(false);
       setProgress(null);
-      const resultsJson = await invoke<string | null>("load_scan_results");
-      setScanResults(resultsJson ? JSON.parse(resultsJson) : null);
+      setScanResults(await invoke<Record<string, PhotoResult> | null>("load_scan_results"));
     }
   }
 
