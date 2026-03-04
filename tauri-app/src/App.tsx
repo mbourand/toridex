@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
 
-import { Species, ScanResults, UserPhoto, FilterMode, SortMode, AmbiguousAlternative } from "./types";
+import { Species, ScanResults, UserPhoto, FilterMode, SortMode } from "./types";
 import SearchFilterBar from "./components/SearchFilterBar";
 import ScanPanel from "./components/ScanPanel";
 import SpeciesCard from "./components/SpeciesCard";
@@ -23,7 +23,10 @@ export default function App() {
   const [sort, setSort] = useState<SortMode>("name");
 
   const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
   const [folder, setFolder] = useState("");
 
   const [selected, setSelected] = useState<Species | null>(null);
@@ -53,7 +56,7 @@ export default function App() {
   useEffect(() => {
     const unlistenProgress = listen<{ current: number; total: number }>(
       "scan-progress",
-      e => setProgress(e.payload)
+      (e) => setProgress(e.payload),
     );
     const unlistenComplete = listen("scan-complete", async () => {
       setScanning(false);
@@ -67,39 +70,28 @@ export default function App() {
     });
 
     return () => {
-      unlistenProgress.then(f => f());
-      unlistenComplete.then(f => f());
-      unlistenError.then(f => f());
+      unlistenProgress.then((f) => f());
+      unlistenComplete.then((f) => f());
+      unlistenError.then((f) => f());
     };
   }, []);
 
-  // epithet → display name lookup (used by DetailModal for top-k labels)
-  const epithetToName = useMemo(() => {
+  // scientificName → display name lookup (used by DetailModal for top-k labels)
+  const speciesDisplay = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of species) {
-      map.set(s.epithet, s.frenchName || s.scientificName);
+      map.set(s.scientificName, s.frenchName || s.scientificName);
     }
-    return (epithet: string) => map.get(epithet) ?? epithet;
+    return (sciName: string) => map.get(sciName) ?? sciName;
   }, [species]);
 
-  // epithet → alternative species that share the same epithet (ambiguous classes)
-  const epithetToAmbiguous = useMemo(() => {
-    const map = new Map<string, AmbiguousAlternative[]>();
-    for (const s of species) {
-      if (s.ambiguousAlternatives?.length > 0) {
-        map.set(s.epithet, s.ambiguousAlternatives);
-      }
-    }
-    return (epithet: string) => map.get(epithet);
-  }, [species]);
-
-  // All photos grouped by epithet (including "__unknown__").
+  // All photos grouped by scientificName (including "__unknown__").
   // Each group is sorted by confidence descending so the best shot comes first.
-  const photosByEpithet = useMemo<Map<string, UserPhoto[]>>(() => {
+  const photosBySpecies = useMemo<Map<string, UserPhoto[]>>(() => {
     const map = new Map<string, UserPhoto[]>();
     if (!scanResults) return map;
     for (const [path, result] of Object.entries(scanResults.photos)) {
-      const key = result.epithet;
+      const key = result.scientificName;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push({ path, result });
     }
@@ -109,38 +101,45 @@ export default function App() {
     return map;
   }, [scanResults]);
 
-  const unknownPhotos = photosByEpithet.get("__unknown__") ?? [];
-  const foundCount = [...photosByEpithet.keys()].filter(k => k !== "__unknown__").length;
+  const unknownPhotos = photosBySpecies.get("__unknown__") ?? [];
+  const foundCount = [...photosBySpecies.keys()].filter(
+    (k) => k !== "__unknown__",
+  ).length;
 
   // Filter + search + sort
   const visible = useMemo(() => {
     let list = species;
 
-    if (filter === "found") list = list.filter(s => photosByEpithet.has(s.epithet));
-    else if (filter === "not-found") list = list.filter(s => !photosByEpithet.has(s.epithet));
+    if (filter === "found")
+      list = list.filter((s) => photosBySpecies.has(s.scientificName));
+    else if (filter === "not-found")
+      list = list.filter((s) => !photosBySpecies.has(s.scientificName));
 
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
-        s =>
+        (s) =>
           s.frenchName.toLowerCase().includes(q) ||
           s.scientificName.toLowerCase().includes(q) ||
-          s.epithet.toLowerCase().includes(q)
+          s.epithet.toLowerCase().includes(q),
       );
     }
 
     list = [...list].sort((a, b) => {
       if (sort === "name") {
         return (a.frenchName || a.scientificName).localeCompare(
-          b.frenchName || b.scientificName, "fr"
+          b.frenchName || b.scientificName,
+          "fr",
         );
       }
       if (sort === "rarity") {
         return a.occurrenceCount - b.occurrenceCount;
       }
       // date: found with a date first (most recent first), unfound last
-      const da = photosByEpithet.get(a.epithet)?.[0]?.result.exif_date ?? "";
-      const db = photosByEpithet.get(b.epithet)?.[0]?.result.exif_date ?? "";
+      const da =
+        photosBySpecies.get(a.scientificName)?.[0]?.result.exif_date ?? "";
+      const db =
+        photosBySpecies.get(b.scientificName)?.[0]?.result.exif_date ?? "";
       if (da && db) return db.localeCompare(da);
       if (da) return -1;
       if (db) return 1;
@@ -148,7 +147,7 @@ export default function App() {
     });
 
     return list;
-  }, [species, filter, search, sort, photosByEpithet]);
+  }, [species, filter, search, sort, photosBySpecies]);
 
   async function handlePickFolder() {
     const picked = await invoke<string | null>("open_folder_dialog");
@@ -224,7 +223,7 @@ export default function App() {
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
         {/* Unknown photos banner */}
-        <UnknownPanel photos={unknownPhotos} epithetToName={epithetToName} />
+        <UnknownPanel photos={unknownPhotos} speciesDisplay={speciesDisplay} />
 
         {/* Species grid */}
         <div className="p-4">
@@ -234,11 +233,11 @@ export default function App() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {visible.map(s => (
+              {visible.map((s) => (
                 <SpeciesCard
                   key={s.idx}
                   species={s}
-                  photos={photosByEpithet.get(s.epithet) ?? []}
+                  photos={photosBySpecies.get(s.scientificName) ?? []}
                   dataDir={dataDir}
                   onClick={() => setSelected(s)}
                 />
@@ -253,15 +252,16 @@ export default function App() {
         <DetailModal
           title={selected.frenchName || selected.scientificName}
           subtitle={selected.frenchName ? selected.scientificName : undefined}
-          photos={photosByEpithet.get(selected.epithet) ?? []}
+          photos={photosBySpecies.get(selected.scientificName) ?? []}
           referenceImgSrc={
             selected.referencePhotoId !== null
-              ? convertFileSrc(`${dataDir}/images/${selected.referencePhotoId}.jpg`)
+              ? convertFileSrc(
+                  `${dataDir}/images/${selected.referencePhotoId}.jpg`,
+                )
               : undefined
           }
           occurrenceCount={selected.occurrenceCount}
-          epithetToName={epithetToName}
-          epithetToAmbiguous={epithetToAmbiguous}
+          speciesDisplay={speciesDisplay}
           onClose={() => setSelected(null)}
         />
       )}

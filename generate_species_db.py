@@ -29,7 +29,7 @@ OUTPUT_PATH = Path("data/species_db.json")
 
 
 def main() -> None:
-    # 1. Label map: epithet → int index
+    # 1. Label map: binomial → int index  (keys are now full scientific names)
     with open(SPLITS_DIR / "label_map.json") as f:
         label_map: dict[str, int] = json.load(f)
 
@@ -41,61 +41,28 @@ def main() -> None:
     with open(FRENCH_NAMES_PATH, encoding="utf-8") as f:
         french_names: dict[str, str] = json.load(f)
 
-    # 4. Image index: derive ground-truth scientificName per epithet from actual training data.
-    # Using mode() (most frequent) avoids hybrids or mis-labelled outliers dominating.
+    # 4. Image index: pick one reference photo per species.
     print("Loading image index...")
-    df_images = pd.read_parquet(IMAGE_INDEX_PATH, columns=["photo_id", "species", "scientificName"])
-    epithet_to_sciname = (
-        df_images.groupby("species")["scientificName"]
-        .agg(lambda x: x.mode().iloc[0])
-        .to_dict()
-    )
-    reference_photos = df_images.groupby("species")["photo_id"].first().to_dict()
-
-    # For each epithet, collect ALL scientificNames with their image counts (sorted desc).
-    # Used to flag ambiguous epithets shared by multiple species.
-    epithet_all_names: dict[str, list[str]] = (
-        df_images.groupby(["species", "scientificName"])
-        .size()
-        .reset_index(name="count")
-        .sort_values(["species", "count"], ascending=[True, False])
-        .groupby("species")["scientificName"]
-        .apply(list)
-        .to_dict()
-    )
+    df_images = pd.read_parquet(IMAGE_INDEX_PATH, columns=["photo_id", "scientificName"])
+    reference_photos = df_images.groupby("scientificName")["photo_id"].first().to_dict()
 
     # 5. Build species list sorted by idx
     species_list = []
-    missing_binomial = []
     missing_french = []
     missing_photo = []
 
-    for epithet, idx in sorted(label_map.items(), key=lambda x: x[1]):
-        # Ground-truth binomial comes from the training images, not from the CSV.
-        # This ensures "caeruleus" → "Cyanistes caeruleus" (Mésange bleue),
-        # not whatever happens to share the epithet in the GBIF species list.
-        binomial = epithet_to_sciname.get(epithet)
-        if binomial is None:
-            missing_binomial.append(epithet)
-            binomial = epithet.capitalize()
+    for binomial, idx in sorted(label_map.items(), key=lambda x: x[1]):
+        # Derive the specific epithet from the binomial (e.g. "Parus major" → "major")
+        epithet = binomial.split()[-1] if " " in binomial else binomial
 
         french_name = french_names.get(binomial.lower(), "")
         if not french_name:
-            missing_french.append(epithet)
+            missing_french.append(binomial)
 
         occurrence_count = binomial_to_count.get(binomial, 0)
-        reference_photo_id = reference_photos.get(epithet)
+        reference_photo_id = reference_photos.get(binomial)
         if reference_photo_id is None:
-            missing_photo.append(epithet)
-
-        # Build list of OTHER species that share this epithet (ambiguous class).
-        ambiguous_alternatives = []
-        for alt_sciname in epithet_all_names.get(epithet, []):
-            if alt_sciname != binomial:
-                ambiguous_alternatives.append({
-                    "scientificName": alt_sciname,
-                    "frenchName": french_names.get(alt_sciname.lower(), ""),
-                })
+            missing_photo.append(binomial)
 
         species_list.append({
             "idx": idx,
@@ -104,7 +71,6 @@ def main() -> None:
             "frenchName": french_name,
             "occurrenceCount": int(occurrence_count),
             "referencePhotoId": int(reference_photo_id) if reference_photo_id is not None else None,
-            "ambiguousAlternatives": ambiguous_alternatives,
         })
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -112,8 +78,6 @@ def main() -> None:
         json.dump(species_list, f, ensure_ascii=False, indent=2)
 
     print(f"Wrote {len(species_list)} species to {OUTPUT_PATH}")
-    if missing_binomial:
-        print(f"  Warning: {len(missing_binomial)} epithets had no matching binomial")
     if missing_french:
         print(f"  Warning: {len(missing_french)} species had no French name")
     if missing_photo:

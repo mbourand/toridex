@@ -1,8 +1,3 @@
-export interface AmbiguousAlternative {
-  scientificName: string;
-  frenchName: string;
-}
-
 export interface Species {
   idx: number;
   epithet: string;
@@ -10,17 +5,16 @@ export interface Species {
   frenchName: string;
   occurrenceCount: number;
   referencePhotoId: number | null;
-  ambiguousAlternatives: AmbiguousAlternative[];
 }
 
 export interface PhotoResult {
   species_idx: number;
-  epithet: string;
+  scientificName: string;
   confidence: number;
   exif_date?: string;
   exif_lat?: number;
   exif_lon?: number;
-  top_k?: Array<{ epithet: string; confidence: number }>;
+  top_k?: Array<{ scientificName: string; confidence: number }>;
 }
 
 export interface UserPhoto {

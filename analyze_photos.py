@@ -176,7 +176,7 @@ def main() -> None:
     # Load label map
     with open(SPLITS_DIR / "label_map.json") as f:
         label_map: dict[str, int] = json.load(f)
-    idx_to_epithet = {v: k for k, v in label_map.items()}
+    idx_to_sciname = {v: k for k, v in label_map.items()}
     num_classes = len(label_map)
 
     # Load models
@@ -229,7 +229,7 @@ def main() -> None:
         uncertain = top1_prob < args.min_confidence
         entry: dict = {
             "species_idx": top1_idx,
-            "epithet": "__unknown__" if uncertain else idx_to_epithet.get(top1_idx, str(top1_idx)),
+            "scientificName": "__unknown__" if uncertain else idx_to_sciname.get(top1_idx, str(top1_idx)),
             "confidence": round(top1_prob, 4),
         }
         entry.update(extract_exif(img))
@@ -237,7 +237,7 @@ def main() -> None:
         # Include top-5 for detail view
         if args.top > 1:
             entry["top_k"] = [
-                {"epithet": idx_to_epithet.get(i.item(), str(i.item())), "confidence": round(p.item(), 4)}
+                {"scientificName": idx_to_sciname.get(i.item(), str(i.item())), "confidence": round(p.item(), 4)}
                 for p, i in zip(top_probs[0], top_indices[0])
             ]
 

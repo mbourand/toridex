@@ -12,6 +12,7 @@ Usage:
 """
 
 import json
+import random
 from pathlib import Path
 
 import pandas as pd
@@ -19,6 +20,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torchvision import transforms
+from tqdm import tqdm
 
 INDEX_PATH = Path("data/image_index.parquet")
 SPLITS_DIR = Path("data/splits")
@@ -53,10 +55,14 @@ def create_splits(
     splits_dir: Path = SPLITS_DIR,
     val_ratio: float = 0.1,
     test_ratio: float = 0.1,
+    min_images: int = 3,
     seed: int = 42,
 ) -> Path:
     """
     Create stratified train/val/test splits from the image index.
+
+    Species with fewer than *min_images* images are dropped (stratified
+    splitting requires at least one sample per split).
 
     Outputs:
       data/splits/train.parquet
@@ -68,10 +74,23 @@ def create_splits(
 
     print(f"Loading image index from {index_path}...")
     df = pd.read_parquet(index_path)
-    print(f"  {len(df):,} images, {df['species'].nunique()} species.")
+    total_species = df["scientificName"].nunique()
+    print(f"  {len(df):,} images, {total_species} species.")
 
-    # Build sorted label map for reproducibility
-    species_sorted = sorted(df["species"].unique())
+    # Drop species with too few images for stratified 3-way splitting
+    counts = df["scientificName"].value_counts()
+    rare = counts[counts < min_images].index
+    if len(rare) > 0:
+        print(f"  Dropping {len(rare)} species with fewer than {min_images} images:")
+        for sp in sorted(rare):
+            print(f"    - {sp} ({counts[sp]} image{'s' if counts[sp] > 1 else ''})")
+        df = df[~df["scientificName"].isin(rare)].reset_index(drop=True)
+        print(f"  Remaining: {len(df):,} images, {df['scientificName'].nunique()} species.")
+
+    # Build sorted label map using full binomial names for unambiguous classes.
+    # Previously used 'species' (epithet only), which collapsed distinct species
+    # like Ardea alba and Motacilla alba into one "alba" class.
+    species_sorted = sorted(df["scientificName"].unique())
     label_map = {sp: i for i, sp in enumerate(species_sorted)}
     with open(splits_dir / "label_map.json", "w") as f:
         json.dump(label_map, f, indent=2)
@@ -81,10 +100,10 @@ def create_splits(
     val_size = val_ratio / (1.0 - test_ratio)  # relative to train+val remainder
 
     df_train_val, df_test = train_test_split(
-        df, test_size=test_size, stratify=df["species"], random_state=seed
+        df, test_size=test_size, stratify=df["scientificName"], random_state=seed
     )
     df_train, df_val = train_test_split(
-        df_train_val, test_size=val_size, stratify=df_train_val["species"], random_state=seed
+        df_train_val, test_size=val_size, stratify=df_train_val["scientificName"], random_state=seed
     )
 
     for name, split_df in [("train", df_train), ("val", df_val), ("test", df_test)]:
@@ -131,9 +150,42 @@ class BirdDataset(Dataset):
         row = self.df.iloc[idx]
         img_path = self.image_dir / f"{row['photo_id']}.jpg"
 
-        img = Image.open(img_path).convert("RGB")
-        if self.transform:
-            img = self.transform(img)
+        try:
+            img = Image.open(img_path).convert("RGB")
+            if self.transform:
+                img = self.transform(img)
+        except Exception:
+            # Corrupted / truncated image — return a random other sample
+            return self[random.randint(0, len(self) - 1)]
 
-        label = self.label_map[row["species"]]
+        label = self.label_map[row["scientificName"]]
         return img, label
+
+
+def verify_images(
+    index_path: Path = INDEX_PATH,
+    image_dir: Path = IMAGE_DIR,
+) -> None:
+    """
+    Scan every image referenced in the index, remove rows whose files are
+    missing or corrupted, and overwrite the index in place.
+    """
+    print(f"Verifying images in {image_dir}...")
+    df = pd.read_parquet(index_path)
+    bad_ids: list[int] = []
+
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Checking images"):
+        path = image_dir / f"{row['photo_id']}.jpg"
+        try:
+            with Image.open(path) as img:
+                img.verify()  # checks file integrity without fully decoding
+        except Exception:
+            bad_ids.append(row["photo_id"])
+
+    if bad_ids:
+        print(f"  Found {len(bad_ids)} bad image(s) — removing from index.")
+        df = df[~df["photo_id"].isin(bad_ids)].reset_index(drop=True)
+        df.to_parquet(index_path, index=False)
+        print(f"  Updated {index_path} ({len(df):,} images remaining).")
+    else:
+        print("  All images OK.")

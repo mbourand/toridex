@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { UserPhoto, AmbiguousAlternative } from "../types";
+import { UserPhoto } from "../types";
 
 interface Props {
   title: string;
@@ -10,10 +10,8 @@ interface Props {
   /** Shown greyscale when photos is empty */
   referenceImgSrc?: string;
   occurrenceCount?: number;
-  /** Resolve an epithet to a display name (French or scientific) */
-  epithetToName: (epithet: string) => string;
-  /** Returns other species sharing the same epithet, if any */
-  epithetToAmbiguous?: (epithet: string) => AmbiguousAlternative[] | undefined;
+  /** Resolve a scientificName to a display name (French or scientific) */
+  speciesDisplay: (sciName: string) => string;
   onClose: () => void;
 }
 
@@ -23,8 +21,7 @@ export default function DetailModal({
   photos,
   referenceImgSrc,
   occurrenceCount,
-  epithetToName,
-  epithetToAmbiguous,
+  speciesDisplay,
   onClose,
 }: Props) {
   const [idx, setIdx] = useState(0);
@@ -37,12 +34,6 @@ export default function DetailModal({
     : (referenceImgSrc ?? null);
 
   const topK = current?.result.top_k ?? [];
-  const alternatives =
-    current && epithetToAmbiguous
-      ? (epithetToAmbiguous(current.result.epithet) ?? [])
-      : [];
-
-  console.log({ current, topK, alternatives });
 
   return (
     <div
@@ -179,37 +170,6 @@ export default function DetailModal({
             )}
           </div>
 
-          {/* Ambiguity warning */}
-          {alternatives.length > 0 && (
-            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-              <p className="text-amber-400 text-xs font-semibold mb-1">
-                ⚠ Épithète partagée :{" "}
-                <span className="font-mono">'{current!.result.epithet}'</span>{" "}
-                peut aussi désigner
-              </p>
-              <ul className="space-y-0.5">
-                {alternatives.map((alt) => (
-                  <li
-                    key={alt.scientificName}
-                    className="text-amber-200/70 text-xs"
-                  >
-                    •{" "}
-                    {alt.frenchName ? (
-                      <>
-                        <span className="font-medium">{alt.frenchName}</span>{" "}
-                        <span className="italic text-amber-200/40">
-                          ({alt.scientificName})
-                        </span>
-                      </>
-                    ) : (
-                      <span className="italic">{alt.scientificName}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {/* Top-k */}
           {current && topK.length > 0 && (
             <div>
@@ -228,10 +188,10 @@ export default function DetailModal({
                     </div>
                     <div className="w-36 min-w-0">
                       <p className="text-gray-300 text-xs truncate leading-tight">
-                        {epithetToName(k.epithet)}
+                        {speciesDisplay(k.scientificName)}
                       </p>
                       <p className="text-gray-600 text-[10px] truncate italic leading-tight">
-                        {k.epithet}
+                        {k.scientificName}
                       </p>
                     </div>
                     <span className="text-gray-500 text-xs w-10 text-right">

@@ -4,10 +4,10 @@ import DetailModal from "./DetailModal";
 
 interface Props {
   photos: UserPhoto[];
-  epithetToName: (epithet: string) => string;
+  speciesDisplay: (sciName: string) => string;
 }
 
-export default function UnknownPanel({ photos, epithetToName }: Props) {
+export default function UnknownPanel({ photos, speciesDisplay }: Props) {
   const [open, setOpen] = useState(false);
 
   if (photos.length === 0) return null;
@@ -20,7 +20,8 @@ export default function UnknownPanel({ photos, epithetToName }: Props) {
       >
         <span className="text-yellow-400">⚠</span>
         <span className="text-yellow-300 font-semibold">
-          {photos.length} photo{photos.length > 1 ? "s" : ""} incertaine{photos.length > 1 ? "s" : ""}
+          {photos.length} photo{photos.length > 1 ? "s" : ""} incertaine
+          {photos.length > 1 ? "s" : ""}
         </span>
         <span className="text-gray-500 text-xs">— cliquez pour voir</span>
       </button>
@@ -30,7 +31,7 @@ export default function UnknownPanel({ photos, epithetToName }: Props) {
           title="Photos incertaines"
           subtitle="Confiance insuffisante pour identifier l'espèce"
           photos={photos}
-          epithetToName={epithetToName}
+          speciesDisplay={speciesDisplay}
           onClose={() => setOpen(false)}
         />
       )}

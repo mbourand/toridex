@@ -51,20 +51,20 @@ def download_image(photo_id: int, url: str, image_dir: Path) -> bool:
 
 
 def sample_metadata(metadata_path: Path, max_per_species: int) -> pd.DataFrame:
-    """Load parquet and sample up to max_per_species rows per species."""
+    """Load parquet and sample up to max_per_species rows per species (binomial)."""
     print(f"Loading metadata from {metadata_path}...")
     df = pd.read_parquet(metadata_path)
     df = df.dropna(subset=["photo_url"])
 
-    print(f"  {len(df):,} total rows, {df['species'].nunique()} species.")
+    print(f"  {len(df):,} total rows, {df['scientificName'].nunique()} species.")
     print(f"  Sampling up to {max_per_species} images per species...")
 
     sampled = (
-        df.groupby("species", group_keys=False)
+        df.groupby("scientificName", group_keys=False)
         .apply(lambda g: g.sample(min(len(g), max_per_species), random_state=42))
         .reset_index(drop=True)
     )
-    print(f"  Sampled {len(sampled):,} images across {sampled['species'].nunique()} species.")
+    print(f"  Sampled {len(sampled):,} images across {sampled['scientificName'].nunique()} species.")
     return sampled
 
 

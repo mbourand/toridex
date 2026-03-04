@@ -246,13 +246,9 @@ def main() -> None:
     num_classes   = len(label_map)
     idx_to_label  = {v: k for k, v in label_map.items()}
 
-    import pandas as pd
-    df = pd.read_parquet(SPLITS_DIR / "train.parquet")
-    epithet_to_sciname = df.groupby("species")["scientificName"].first().to_dict()
-    idx_to_sciname = {
-        idx: epithet_to_sciname.get(epithet, epithet)
-        for epithet, idx in label_map.items()
-    }
+    # label_map keys are now full binomials (e.g. "Parus major"),
+    # so idx_to_label already gives scientific names.
+    idx_to_sciname = idx_to_label
 
     french = load_french_names()
 

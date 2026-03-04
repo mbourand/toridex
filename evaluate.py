@@ -49,15 +49,12 @@ def build_test_loader(batch_size: int, num_workers: int) -> tuple[DataLoader, di
 
 
 def build_idx_to_sciname(label_map: dict[str, int]) -> dict[int, str]:
-    """Map label int → full scientific name using the test split metadata."""
-    df = pd.read_parquet(SPLITS_DIR / "test.parquet")
-    # scientificName is the full binomial (e.g. "Parus major")
-    epithet_to_sciname = df.groupby("species")["scientificName"].first().to_dict()
-    idx_to_species = {v: k for k, v in label_map.items()}
-    return {
-        idx: epithet_to_sciname.get(epithet, epithet)
-        for idx, epithet in idx_to_species.items()
-    }
+    """Map label int → full scientific name.
+
+    Since label_map now uses binomials as keys (e.g. "Parus major"),
+    this is just an inversion of the label_map.
+    """
+    return {v: k for k, v in label_map.items()}
 
 
 # ---------------------------------------------------------------------------
