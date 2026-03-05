@@ -12,10 +12,10 @@ export default function App() {
   const {
     species, dataDir, loading, error,
     search, setSearch, filter, setFilter, sort, setSort,
-    scanning, progress, config,
+    scanning, progress, modelStatus, config,
     speciesDisplay, photosBySpecies, unknownPhotos, foundCount, visible,
     selected, setSelected,
-    handleAddFolder, handleRemoveFolder, handleScan,
+    handleAddFolder, handleRemoveFolder, handleScan, cancelScan,
   } = useBirdData();
 
   if (loading) {
@@ -54,10 +54,12 @@ export default function App() {
       <ScanPanel
         scanning={scanning}
         progress={progress}
+        modelStatus={modelStatus}
         folders={config.folders}
         onAddFolder={handleAddFolder}
         onRemoveFolder={handleRemoveFolder}
         onScan={() => handleScan()}
+        onCancel={cancelScan}
       />
 
       {/* Search/filter bar */}

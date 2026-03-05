@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod exif;
 mod scan;
 mod thumbs;
 
@@ -24,12 +25,15 @@ pub fn run() {
             commands::load_species_db,
             commands::load_scan_results,
             commands::get_data_dir,
-            scan::scan_photos_folder,
             commands::open_folder_dialog,
             commands::load_config,
             commands::save_config,
             commands::set_user_species,
             commands::delete_photos_by_folder,
+            scan::prepare_scan,
+            scan::store_photo_result,
+            scan::get_model_paths,
+            scan::finalize_scan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

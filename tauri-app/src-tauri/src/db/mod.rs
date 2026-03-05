@@ -27,13 +27,15 @@ pub struct PhotoRow {
     pub user_species: Option<String>,
 }
 
-// Types for deserializing Python's scan_results.json
+// Types for deserializing Python's scan_results.json (kept for backward compat)
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct ScanResultsJson {
     pub folders: Vec<String>,
     pub photos: std::collections::HashMap<String, PhotoEntryJson>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct PhotoEntryJson {
     pub species_idx: i64,
@@ -48,6 +50,7 @@ pub struct PhotoEntryJson {
     pub top_k: Option<Vec<TopKEntryJson>>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Serialize)]
 pub struct TopKEntryJson {
     #[serde(rename = "scientificName")]

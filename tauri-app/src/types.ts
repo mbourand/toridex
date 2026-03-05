@@ -28,5 +28,23 @@ export interface AppConfig {
   folders: string[];
 }
 
+export interface FileToProcess {
+  path: string;
+  folder: string;
+  fileMtime: number;
+  fileSize: number;
+}
+
+export interface PreparedScan {
+  toProcess: FileToProcess[];
+  skippedCount: number;
+}
+
+export interface ModelPaths {
+  detector: string;
+  classifier: string;
+  labelMap: string;
+}
+
 export type FilterMode = "all" | "found" | "not-found";
 export type SortMode = "name" | "rarity" | "date";

@@ -5,15 +5,15 @@ use rusqlite::{params, Connection};
 use super::{PhotoRow, ScanResultsJson};
 
 // ---------------------------------------------------------------------------
-// Import from JSON
+// Import from JSON (kept for backward compat)
 // ---------------------------------------------------------------------------
 
-/// Normalize path separators to forward slashes for consistent matching.
+#[allow(dead_code)]
 fn normalize_path(p: &str) -> String {
     p.replace('\\', "/")
 }
 
-/// Find which configured folder a photo path belongs to.
+#[allow(dead_code)]
 fn find_folder_for_path(photo_path: &str, folders: &[String]) -> String {
     let norm = normalize_path(photo_path);
     let mut best = String::new();
@@ -30,6 +30,7 @@ fn find_folder_for_path(photo_path: &str, folders: &[String]) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn upsert_photos_from_json(conn: &Connection, json_path: &Path) -> Result<usize, String> {
     let content =
         std::fs::read_to_string(json_path).map_err(|e| format!("Read JSON failed: {e}"))?;
@@ -106,6 +107,85 @@ pub fn upsert_photos_from_json(conn: &Connection, json_path: &Path) -> Result<us
 
     tx.commit().map_err(|e| format!("Commit failed: {e}"))?;
     Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// Direct upsert (native inference, no JSON intermediate)
+// ---------------------------------------------------------------------------
+
+/// Check if a photo is unchanged (same mtime + size) and can be skipped.
+pub fn is_photo_unchanged(conn: &Connection, path: &str, mtime: f64, size: i64) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM photos WHERE path = ?1 AND file_mtime = ?2 AND file_size = ?3",
+        params![path, mtime, size],
+        |_| Ok(()),
+    )
+    .is_ok()
+}
+
+/// Upsert a single photo row directly from Rust inference results.
+pub fn upsert_single_photo(
+    conn: &Connection,
+    path: &str,
+    folder: &str,
+    species: &str,
+    species_idx: i64,
+    confidence: f64,
+    exif_date: Option<&str>,
+    exif_lat: Option<f64>,
+    exif_lon: Option<f64>,
+    file_mtime: f64,
+    file_size: i64,
+    top_k_json: Option<&str>,
+) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO photos(path, folder, model_species, model_species_idx, model_confidence,
+                            exif_date, exif_lat, exif_lon, file_mtime, file_size, top_k)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         ON CONFLICT(path) DO UPDATE SET
+             folder = excluded.folder,
+             model_species = excluded.model_species,
+             model_species_idx = excluded.model_species_idx,
+             model_confidence = excluded.model_confidence,
+             exif_date = excluded.exif_date,
+             exif_lat = excluded.exif_lat,
+             exif_lon = excluded.exif_lon,
+             file_mtime = excluded.file_mtime,
+             file_size = excluded.file_size,
+             top_k = excluded.top_k",
+        params![
+            path,
+            folder,
+            species,
+            species_idx,
+            confidence,
+            exif_date,
+            exif_lat,
+            exif_lon,
+            file_mtime,
+            file_size,
+            top_k_json,
+        ],
+    )
+    .map_err(|e| format!("Upsert failed for {path}: {e}"))?;
+    Ok(())
+}
+
+/// Get all photo paths in given folders (for stale detection).
+pub fn get_photo_paths_in_folders(conn: &Connection, folders: &[String]) -> Vec<String> {
+    let mut paths = Vec::new();
+    for folder in folders {
+        let mut stmt = conn
+            .prepare("SELECT path FROM photos WHERE folder = ?1")
+            .unwrap();
+        let rows: Vec<String> = stmt
+            .query_map(params![folder], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        paths.extend(rows);
+    }
+    paths
 }
 
 // ---------------------------------------------------------------------------

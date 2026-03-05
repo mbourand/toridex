@@ -1,12 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
-import { Species, PhotoResult, AppConfig, UserPhoto, FilterMode, SortMode } from "../types";
+import {
+  Species,
+  PhotoResult,
+  AppConfig,
+  UserPhoto,
+  FilterMode,
+  SortMode,
+  PreparedScan,
+  ModelPaths,
+} from "../types";
+import { initInferenceWorker, processImage } from "../inference";
+
+const DETECT_THRESHOLD = 0.5;
+const MIN_CONFIDENCE = 0.5;
+const TOP_K = 5;
 
 export default function useBirdData() {
   const [species, setSpecies] = useState<Species[]>([]);
-  const [scanResults, setScanResults] = useState<Record<string, PhotoResult> | null>(null);
+  const [scanResults, setScanResults] = useState<Record<
+    string,
+    PhotoResult
+  > | null>(null);
   const [dataDir, setDataDir] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,9 +37,13 @@ export default function useBirdData() {
     current: number;
     total: number;
   } | null>(null);
+  const [modelStatus, setModelStatus] = useState("");
   const [config, setConfig] = useState<AppConfig>({ folders: [] });
 
   const [selected, setSelected] = useState<Species | null>(null);
+
+  // Abort controller for cancelling scans
+  const abortRef = useRef<AbortController | null>(null);
 
   // Load data on mount
   useEffect(() => {
@@ -32,7 +53,9 @@ export default function useBirdData() {
         setDataDir(dir);
 
         setSpecies(await invoke<Species[]>("load_species_db"));
-        setScanResults(await invoke<Record<string, PhotoResult> | null>("load_scan_results"));
+        setScanResults(
+          await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
+        );
         setConfig(await invoke<AppConfig>("load_config"));
       } catch (e) {
         setError(String(e));
@@ -41,15 +64,6 @@ export default function useBirdData() {
       }
     }
     load();
-  }, []);
-
-  // Listen for real-time scan progress
-  useEffect(() => {
-    const unlisten = listen<{ current: number; total: number }>(
-      "scan-progress",
-      (e) => setProgress(e.payload),
-    );
-    return () => { unlisten.then((f) => f()); };
   }, []);
 
   // scientificName → display name lookup (used by DetailModal for top-k labels)
@@ -128,7 +142,12 @@ export default function useBirdData() {
   // Auto-scan on launch if folders are configured
   const autoScannedRef = useRef(false);
   useEffect(() => {
-    if (!loading && config.folders.length > 0 && !scanning && !autoScannedRef.current) {
+    if (
+      !loading &&
+      config.folders.length > 0 &&
+      !scanning &&
+      !autoScannedRef.current
+    ) {
       autoScannedRef.current = true;
       handleScan(config.folders);
     }
@@ -145,41 +164,132 @@ export default function useBirdData() {
   }
 
   async function handleRemoveFolder(folder: string) {
-    const updated = { folders: config.folders.filter(f => f !== folder) };
+    const updated = { folders: config.folders.filter((f) => f !== folder) };
     setConfig(updated);
     await invoke("save_config", { folders: updated.folders });
     await invoke("delete_photos_by_folder", { folder });
-    setScanResults(await invoke<Record<string, PhotoResult> | null>("load_scan_results"));
+    setScanResults(
+      await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
+    );
   }
 
   async function handleScan(folders?: string[]) {
     const foldersToScan = folders ?? config.folders;
     if (foldersToScan.length === 0 || scanning) return;
+
+    const abort = new AbortController();
+    abortRef.current = abort;
+
     setScanning(true);
-    setProgress({ current: 0, total: 0 });
+    setProgress(null);
+    setModelStatus("");
+
     try {
-      await invoke("scan_photos_folder", { folders: foldersToScan });
+      // Step 1: Prepare — collect image paths, filter unchanged
+      const prepared = await invoke<PreparedScan>("prepare_scan", {
+        folders: foldersToScan,
+      });
+
+      if (prepared.toProcess.length === 0) {
+        await invoke("finalize_scan", { folders: foldersToScan });
+        return;
+      }
+
+      // Step 2: Load models in Web Worker
+      const modelPaths = await invoke<ModelPaths>("get_model_paths");
+      await initInferenceWorker(
+        convertFileSrc(modelPaths.detector),
+        convertFileSrc(modelPaths.classifier),
+        convertFileSrc(modelPaths.labelMap),
+        setModelStatus,
+      );
+
+      // Step 3: Process each image (inference runs in worker, UI stays responsive)
+      const total = prepared.toProcess.length;
+
+      for (let i = 0; i < total; i++) {
+        if (abort.signal.aborted) break;
+
+        const file = prepared.toProcess[i];
+        setProgress({ current: i + 1, total });
+
+        try {
+          const result = await processImage({
+            url: convertFileSrc(file.path),
+            path: file.path,
+            folder: file.folder,
+            fileMtime: file.fileMtime,
+            fileSize: file.fileSize,
+            detectThreshold: DETECT_THRESHOLD,
+            minConfidence: MIN_CONFIDENCE,
+            topK: TOP_K,
+          });
+
+          await invoke("store_photo_result", {
+            path: result.path,
+            folder: result.folder,
+            species: result.species,
+            speciesIdx: result.speciesIdx,
+            confidence: result.confidence,
+            fileMtime: result.fileMtime,
+            fileSize: result.fileSize,
+            topKJson: result.topKJson,
+          });
+        } catch (err) {
+          console.error(`Failed to process ${file.path}:`, err);
+        }
+      }
+
+      // Step 4: Cleanup + thumbnails
+      await invoke("finalize_scan", { folders: foldersToScan });
     } catch (e) {
-      console.error(e);
+      console.error("Scan error:", e);
     } finally {
       setScanning(false);
       setProgress(null);
-      setScanResults(await invoke<Record<string, PhotoResult> | null>("load_scan_results"));
+      setModelStatus("");
+      abortRef.current = null;
+      setScanResults(
+        await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
+      );
     }
+  }
+
+  function cancelScan() {
+    abortRef.current?.abort();
   }
 
   return {
     // Data
-    species, dataDir, loading, error,
+    species,
+    dataDir,
+    loading,
+    error,
     // Search/filter
-    search, setSearch, filter, setFilter, sort, setSort,
+    search,
+    setSearch,
+    filter,
+    setFilter,
+    sort,
+    setSort,
     // Scan state
-    scanning, progress, config,
+    scanning,
+    progress,
+    modelStatus,
+    config,
     // Derived
-    speciesDisplay, photosBySpecies, unknownPhotos, foundCount, visible,
+    speciesDisplay,
+    photosBySpecies,
+    unknownPhotos,
+    foundCount,
+    visible,
     // Selection
-    selected, setSelected,
+    selected,
+    setSelected,
     // Actions
-    handleAddFolder, handleRemoveFolder, handleScan,
+    handleAddFolder,
+    handleRemoveFolder,
+    handleScan,
+    cancelScan,
   };
 }

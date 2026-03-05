@@ -1,13 +1,15 @@
 interface Props {
   scanning: boolean;
   progress: { current: number; total: number } | null;
+  modelStatus: string;
   folders: string[];
   onAddFolder: () => void;
   onRemoveFolder: (folder: string) => void;
   onScan: () => void;
+  onCancel: () => void;
 }
 
-export default function ScanPanel({ scanning, progress, folders, onAddFolder, onRemoveFolder, onScan }: Props) {
+export default function ScanPanel({ scanning, progress, modelStatus, folders, onAddFolder, onRemoveFolder, onScan, onCancel }: Props) {
   const pct = progress && progress.total > 0
     ? Math.round((progress.current / progress.total) * 100)
     : 0;
@@ -43,6 +45,19 @@ export default function ScanPanel({ scanning, progress, folders, onAddFolder, on
       >
         {scanning ? "Analyse en cours..." : "Rafraichir"}
       </button>
+
+      {scanning && (
+        <button
+          onClick={onCancel}
+          className="text-xs text-gray-300 bg-red-700 hover:bg-red-600 px-3 py-2 rounded-lg transition-colors shrink-0"
+        >
+          Annuler
+        </button>
+      )}
+
+      {scanning && modelStatus && (
+        <span className="text-xs text-yellow-400 shrink-0">{modelStatus}</span>
+      )}
 
       {scanning && progress && (
         <div className="flex-1 flex items-center gap-2 min-w-[200px]">
