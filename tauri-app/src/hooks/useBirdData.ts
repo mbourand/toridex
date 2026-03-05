@@ -101,6 +101,7 @@ export default function useBirdData() {
     map.set("__unknown__", "Incertain");
     map.set("__skipped__", "Pas d'oiseau");
     map.set("__no_bird__", "Pas d'oiseau");
+    map.set("__unlisted__", "Espèce non répertoriée");
     return (sciName: string) => map.get(sciName) ?? sciName;
   }, [species]);
 
@@ -120,13 +121,14 @@ export default function useBirdData() {
     return map;
   }, [scanResults]);
 
-  const PSEUDO_SPECIES = new Set(["__unknown__", "__skipped__", "__no_bird__"]);
+  const PSEUDO_SPECIES = new Set(["__unknown__", "__skipped__", "__no_bird__", "__unlisted__"]);
 
   const unknownPhotos = photosBySpecies.get("__unknown__") ?? [];
   const noBirdPhotos = useMemo(() => [
     ...(photosBySpecies.get("__skipped__") ?? []),
     ...(photosBySpecies.get("__no_bird__") ?? []),
   ], [photosBySpecies]);
+  const unlistedPhotos = photosBySpecies.get("__unlisted__") ?? [];
   const foundCount = [...photosBySpecies.keys()].filter(
     (k) => !PSEUDO_SPECIES.has(k),
   ).length;
@@ -421,6 +423,7 @@ export default function useBirdData() {
     photosBySpecies,
     unknownPhotos,
     noBirdPhotos,
+    unlistedPhotos,
     foundCount,
     visible,
     // Selection

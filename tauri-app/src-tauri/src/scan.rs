@@ -9,7 +9,7 @@ use crate::db::{self, DbState};
 use crate::exif;
 use crate::thumbs;
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "tiff", "tif", "webp", "bmp"];
+const SUPPORTED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp"];
 
 // ---------------------------------------------------------------------------
 // Types

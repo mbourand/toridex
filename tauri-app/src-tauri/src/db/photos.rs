@@ -114,9 +114,11 @@ pub fn upsert_photos_from_json(conn: &Connection, json_path: &Path) -> Result<us
 // ---------------------------------------------------------------------------
 
 /// Check if a photo is unchanged (same mtime + size) and can be skipped.
+/// Uses a small epsilon for mtime comparison to handle f64 round-trip precision loss
+/// through the Rust → JSON → JS → JSON → Rust → SQLite pipeline.
 pub fn is_photo_unchanged(conn: &Connection, path: &str, mtime: f64, size: i64) -> bool {
     conn.query_row(
-        "SELECT 1 FROM photos WHERE path = ?1 AND file_mtime = ?2 AND file_size = ?3",
+        "SELECT 1 FROM photos WHERE path = ?1 AND ABS(file_mtime - ?2) < 0.01 AND file_size = ?3",
         params![path, mtime, size],
         |_| Ok(()),
     )

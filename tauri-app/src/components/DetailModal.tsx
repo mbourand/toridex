@@ -45,7 +45,6 @@ export default function DetailModal({
   const hasUserOverride = !!current?.result.userSpecies;
   const canEdit = !!onSetSpecies && !!current;
   const effectiveSpecies = current?.result.scientificName ?? "";
-  const isNoBird = effectiveSpecies === "__skipped__" || effectiveSpecies === "__no_bird__";
 
   function handleSelectSpecies(scientificName: string) {
     if (!current || !onSetSpecies) return;
@@ -60,6 +59,16 @@ export default function DetailModal({
   function handleMarkNoBird() {
     if (!current || !onSetSpecies) return;
     onSetSpecies(current.path, "__no_bird__");
+  }
+
+  function handleMarkUncertain() {
+    if (!current || !onSetSpecies) return;
+    onSetSpecies(current.path, "__unknown__");
+  }
+
+  function handleMarkUnlisted() {
+    if (!current || !onSetSpecies) return;
+    onSetSpecies(current.path, "__unlisted__");
   }
 
   return (
@@ -269,7 +278,7 @@ export default function DetailModal({
 
               {/* Action buttons */}
               {canEdit && (
-                <div className="flex items-center gap-3 mt-3">
+                <div className="flex items-center gap-3 mt-3 flex-wrap">
                   {allSpecies && (
                     <button
                       onClick={() => setShowPicker(true)}
@@ -278,7 +287,23 @@ export default function DetailModal({
                       Autre espece...
                     </button>
                   )}
-                  {!isNoBird && (
+                  {effectiveSpecies !== "__unknown__" && (
+                    <button
+                      onClick={handleMarkUncertain}
+                      className="text-xs text-gray-400 hover:text-yellow-400 transition-colors"
+                    >
+                      Incertain
+                    </button>
+                  )}
+                  {effectiveSpecies !== "__unlisted__" && (
+                    <button
+                      onClick={handleMarkUnlisted}
+                      className="text-xs text-gray-400 hover:text-orange-400 transition-colors"
+                    >
+                      Espèce non répertoriée
+                    </button>
+                  )}
+                  {effectiveSpecies !== "__no_bird__" && effectiveSpecies !== "__skipped__" && (
                     <button
                       onClick={handleMarkNoBird}
                       className="text-xs text-gray-400 hover:text-red-400 transition-colors"
@@ -309,7 +334,7 @@ export default function DetailModal({
                 <p className="text-gray-500 text-xs mb-2">
                   Aucune prediction disponible.
                 </p>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   {allSpecies && (
                     <button
                       onClick={() => setShowPicker(true)}
@@ -318,7 +343,23 @@ export default function DetailModal({
                       Assigner une espece...
                     </button>
                   )}
-                  {!isNoBird && (
+                  {effectiveSpecies !== "__unknown__" && (
+                    <button
+                      onClick={handleMarkUncertain}
+                      className="text-sm text-gray-400 hover:text-yellow-400 transition-colors"
+                    >
+                      Incertain
+                    </button>
+                  )}
+                  {effectiveSpecies !== "__unlisted__" && (
+                    <button
+                      onClick={handleMarkUnlisted}
+                      className="text-sm text-gray-400 hover:text-orange-400 transition-colors"
+                    >
+                      Espèce non répertoriée
+                    </button>
+                  )}
+                  {effectiveSpecies !== "__no_bird__" && effectiveSpecies !== "__skipped__" && (
                     <button
                       onClick={handleMarkNoBird}
                       className="text-sm text-gray-400 hover:text-red-400 transition-colors"

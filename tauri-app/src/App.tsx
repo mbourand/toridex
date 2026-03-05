@@ -15,7 +15,7 @@ export default function App() {
     species, dataDir, loading, error,
     search, setSearch, filter, setFilter, sort, setSort,
     scanning, progress, thumbProgress, modelStatus, config,
-    speciesDisplay, photosBySpecies, unknownPhotos, noBirdPhotos, foundCount, visible,
+    speciesDisplay, photosBySpecies, unknownPhotos, noBirdPhotos, unlistedPhotos, foundCount, visible,
     selected, setSelected,
     showMissingPhotosModal, missingPhotosCount,
     missingPhotosStatus, relocatedPhotosCount, purgedPhotosCount,
@@ -86,7 +86,7 @@ export default function App() {
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
         <div className="p-4">
-          {visible.length === 0 && unknownPhotos.length === 0 && noBirdPhotos.length === 0 ? (
+          {visible.length === 0 && unknownPhotos.length === 0 && noBirdPhotos.length === 0 && unlistedPhotos.length === 0 ? (
             <div className="text-center text-gray-500 mt-20 text-sm">
               Aucune espèce trouvée.
             </div>
@@ -101,6 +101,16 @@ export default function App() {
                     borderClass="ring-yellow-500/50"
                     badgeClass="bg-yellow-500"
                     photos={unknownPhotos}
+                    speciesDisplay={speciesDisplay}
+                    allSpecies={species}
+                    onSetSpecies={handleSetUserSpecies}
+                  />
+                  <PseudoSpeciesCard
+                    label="Espèce non répertoriée"
+                    icon="❓"
+                    borderClass="ring-orange-500/50"
+                    badgeClass="bg-orange-500"
+                    photos={unlistedPhotos}
                     speciesDisplay={speciesDisplay}
                     allSpecies={species}
                     onSetSpecies={handleSetUserSpecies}
