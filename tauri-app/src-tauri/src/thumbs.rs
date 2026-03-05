@@ -2,10 +2,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::ImageReader;
+use rayon::prelude::*;
 
 const THUMB_WIDTH: u32 = 800;
 const JPEG_QUALITY: u8 = 90;
@@ -23,28 +25,37 @@ pub fn thumb_name(path: &str) -> String {
 pub fn generate_thumbnails(
     paths: &[String],
     thumbs_dir: &Path,
-    on_progress: impl Fn(usize, usize),
+    on_progress: impl Fn(usize, usize) + Sync,
 ) -> Vec<(String, String)> {
     fs::create_dir_all(thumbs_dir).ok();
     let total = paths.len();
-    let mut results = Vec::new();
+    let done = AtomicUsize::new(0);
 
-    for (i, original) in paths.iter().enumerate() {
-        let name = thumb_name(original);
-        let dest = thumbs_dir.join(&name);
+    let results: Vec<_> = paths
+        .par_iter()
+        .filter_map(|original| {
+            let name = thumb_name(original);
+            let dest = thumbs_dir.join(&name);
 
-        // Skip if already exists on disk
-        if dest.exists() {
-            results.push((original.clone(), name));
-        } else {
-            match generate_one(original, &dest) {
-                Ok(()) => results.push((original.clone(), name)),
-                Err(e) => eprintln!("Thumbnail failed for {original}: {e}"),
-            }
-        }
+            let ok = if dest.exists() {
+                true
+            } else {
+                match generate_one(original, &dest) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        eprintln!("Thumbnail failed for {original}: {e}");
+                        false
+                    }
+                }
+            };
 
-        on_progress(i + 1, total);
-    }
+            let current = done.fetch_add(1, Ordering::Relaxed) + 1;
+            on_progress(current, total);
+
+            ok.then(|| (original.clone(), name))
+        })
+        .collect();
+
     results
 }
 

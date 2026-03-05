@@ -1,6 +1,5 @@
 """
-Export YOLOv8n (COCO pretrained) to ONNX for bird detection.
-Replaces the 175MB Faster R-CNN with a ~6MB YOLOv8n model.
+Export YOLOv8m (COCO pretrained) to ONNX for bird detection.
 
 Usage:
     pip install ultralytics
@@ -9,17 +8,19 @@ Usage:
 from pathlib import Path
 from ultralytics import YOLO
 
+MODEL_VARIANT = "yolov8m"
+
 def main():
     models_dir = Path("data/models")
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Downloading YOLOv8n...")
-    model = YOLO("yolov8n.pt")
+    print(f"Downloading {MODEL_VARIANT}...")
+    model = YOLO(f"{MODEL_VARIANT}.pt")
 
     print("Exporting to ONNX (640x640 fixed input)...")
     model.export(format="onnx", imgsz=640, simplify=True, opset=17)
 
-    src = Path("yolov8n.onnx")
+    src = Path(f"{MODEL_VARIANT}.onnx")
     dst = models_dir / "bird_detector.onnx"
     if dst.exists():
         dst.unlink()

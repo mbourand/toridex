@@ -16,7 +16,7 @@ import {
 } from "../types";
 import { initInferenceWorker, processImage } from "../inference";
 
-const DETECT_THRESHOLD = 0.5;
+const DETECT_THRESHOLD = 0.3;
 const MIN_CONFIDENCE = 0.5;
 const TOP_K = 5;
 

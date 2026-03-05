@@ -155,7 +155,7 @@ pub fn get_model_paths() -> ModelPaths {
 
 /// Clean up stale DB entries and generate missing thumbnails.
 #[tauri::command]
-pub fn finalize_scan(
+pub async fn finalize_scan(
     app: AppHandle,
     db: tauri::State<'_, DbState>,
     folders: Vec<String>,
@@ -180,16 +180,22 @@ pub fn finalize_scan(
         }
     }
 
-    // Generate thumbnails
+    // Generate thumbnails on a background thread to avoid blocking the UI
     let thumbs_dir = project_dir().join("data/thumbs");
     let needing_thumbs = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         db::photos::get_photos_needing_thumbnails(&conn)
     };
     if !needing_thumbs.is_empty() {
-        let generated = thumbs::generate_thumbnails(&needing_thumbs, &thumbs_dir, |current, total| {
-            let _ = app.emit("thumb-progress", serde_json::json!({ "current": current, "total": total }));
-        });
+        let app_clone = app.clone();
+        let generated = tokio::task::spawn_blocking(move || {
+            thumbs::generate_thumbnails(&needing_thumbs, &thumbs_dir, |current, total| {
+                let _ = app_clone.emit("thumb-progress", serde_json::json!({ "current": current, "total": total }));
+            })
+        })
+        .await
+        .map_err(|e: tokio::task::JoinError| e.to_string())?;
+
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         for (orig, thumb_name) in &generated {
             let _ = db::photos::set_thumb_path(&conn, orig, thumb_name);
