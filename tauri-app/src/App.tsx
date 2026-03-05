@@ -6,6 +6,7 @@ import ScanPanel from "./components/ScanPanel";
 import SpeciesCard from "./components/SpeciesCard";
 import DetailModal from "./components/DetailModal";
 import MissingPhotosModal from "./components/MissingPhotosModal";
+import LabelConflictModal from "./components/LabelConflictModal";
 import UnknownPanel from "./components/UnknownPanel";
 import useBirdData from "./hooks/useBirdData";
 
@@ -19,7 +20,8 @@ export default function App() {
     showMissingPhotosModal, missingPhotosCount,
     missingPhotosStatus, relocatedPhotosCount, purgedPhotosCount,
     handleAddSearchFolder, handleMissingPhotosDone, handleSkipMissingPhotos,
-    handleAddFolder, handleRemoveFolder, handleScan, cancelScan,
+    handleAddFolder, handleRemoveFolder, handleScan, handleFullRescan, cancelScan,
+    labelConflicts, showLabelConflictModal, handleResolveConflicts,
   } = useBirdData();
 
   if (loading) {
@@ -64,6 +66,7 @@ export default function App() {
         onAddFolder={handleAddFolder}
         onRemoveFolder={handleRemoveFolder}
         onScan={() => handleScan()}
+        onFullRescan={handleFullRescan}
         onCancel={cancelScan}
       />
 
@@ -116,6 +119,15 @@ export default function App() {
           onAddSearchFolder={handleAddSearchFolder}
           onDone={handleMissingPhotosDone}
           onSkip={handleSkipMissingPhotos}
+        />
+      )}
+
+      {/* Label conflict review modal (after full rescan) */}
+      {showLabelConflictModal && labelConflicts.length > 0 && (
+        <LabelConflictModal
+          conflicts={labelConflicts}
+          speciesDisplay={speciesDisplay}
+          onResolve={handleResolveConflicts}
         />
       )}
 

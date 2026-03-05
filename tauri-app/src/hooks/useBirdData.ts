@@ -11,6 +11,8 @@ import {
   SortMode,
   PreparedScan,
   ModelPaths,
+  FullRescanInfo,
+  LabelConflict,
 } from "../types";
 import { initInferenceWorker, processImage } from "../inference";
 
@@ -50,6 +52,10 @@ export default function useBirdData() {
   const [missingPhotosStatus, setMissingPhotosStatus] = useState<"pending" | "searching" | "done">("pending");
   const [relocatedPhotosCount, setRelocatedPhotosCount] = useState(0);
   const [purgedPhotosCount, setPurgedPhotosCount] = useState(0);
+
+  // Label conflict review (after full rescan)
+  const [labelConflicts, setLabelConflicts] = useState<LabelConflict[]>([]);
+  const [showLabelConflictModal, setShowLabelConflictModal] = useState(false);
 
   const [selected, setSelected] = useState<Species | null>(null);
 
@@ -342,6 +348,38 @@ export default function useBirdData() {
     abortRef.current?.abort();
   }
 
+  // --- Full rescan ---
+
+  async function handleFullRescan() {
+    if (scanning || config.folders.length === 0) return;
+
+    // Step 1: Reset DB state (purge missing, delete thumbs, reset mtime)
+    await invoke<FullRescanInfo>("prepare_full_rescan");
+
+    // Step 2: Run normal scan (all photos will be re-processed since mtime=0)
+    await handleScan(config.folders);
+
+    // Step 3: Check for label conflicts
+    const conflicts = await invoke<LabelConflict[]>("get_label_conflicts");
+    if (conflicts.length > 0) {
+      setLabelConflicts(conflicts);
+      setShowLabelConflictModal(true);
+    }
+  }
+
+  async function handleResolveConflicts(acceptModelPaths: string[]) {
+    if (acceptModelPaths.length > 0) {
+      await invoke("resolve_label_conflicts", { acceptModelPaths });
+    }
+    setShowLabelConflictModal(false);
+    setLabelConflicts([]);
+
+    // Refresh scan results to reflect resolved conflicts
+    setScanResults(
+      await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
+    );
+  }
+
   return {
     // Data
     species,
@@ -383,6 +421,11 @@ export default function useBirdData() {
     handleAddFolder,
     handleRemoveFolder,
     handleScan,
+    handleFullRescan,
     cancelScan,
+    // Label conflicts
+    labelConflicts,
+    showLabelConflictModal,
+    handleResolveConflicts,
   };
 }

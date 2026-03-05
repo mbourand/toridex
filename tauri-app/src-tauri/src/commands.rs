@@ -2,11 +2,33 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::params;
+use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::db::{self, DbState};
 use crate::thumbs;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FullRescanInfo {
+    pub purged_count: u64,
+    pub total_remaining: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LabelConflict {
+    pub path: String,
+    pub model_species: String,
+    pub model_confidence: f64,
+    pub user_species: String,
+    pub thumb_path: Option<String>,
+}
 
 /// Absolute path to the bird-classification project root (resolved at compile time).
 const PROJECT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
@@ -344,6 +366,123 @@ pub fn purge_missing_photos(
     }
 
     Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// Full rescan
+// ---------------------------------------------------------------------------
+
+/// Prepare for a complete rescan: purge missing photos, delete all thumbnails,
+/// and reset mtime so every photo gets re-processed by the normal scan pipeline.
+#[tauri::command]
+pub fn prepare_full_rescan(
+    db: tauri::State<'_, DbState>,
+) -> Result<FullRescanInfo, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let thumbs_dir = project_dir().join("data/thumbs");
+
+    // 1. Purge photos whose files no longer exist on disk
+    let mut stmt = conn
+        .prepare("SELECT path, thumb_path FROM photos")
+        .map_err(|e| e.to_string())?;
+    let all: Vec<(String, Option<String>)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut purged_count = 0u64;
+    for (path, thumb) in &all {
+        if !Path::new(path).exists() {
+            if let Some(ref t) = thumb {
+                let _ = std::fs::remove_file(thumbs_dir.join(t));
+            }
+            let _ = conn.execute("DELETE FROM photos WHERE path = ?1", params![path]);
+            purged_count += 1;
+        }
+    }
+
+    // 2. Delete ALL thumbnail files from disk
+    if thumbs_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&thumbs_dir) {
+            for entry in entries.flatten() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    // 3. Reset thumb_path and file_mtime to force full re-processing
+    conn.execute("UPDATE photos SET thumb_path = NULL, file_mtime = 0", [])
+        .map_err(|e| e.to_string())?;
+
+    let total_remaining: u64 = conn
+        .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    Ok(FullRescanInfo {
+        purged_count,
+        total_remaining,
+    })
+}
+
+/// Return photos where the user's manual label disagrees with the model prediction.
+#[tauri::command]
+pub fn get_label_conflicts(
+    db: tauri::State<'_, DbState>,
+) -> Result<Vec<LabelConflict>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let data_dir = project_dir().join("data");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT path, model_species, model_confidence, user_species, thumb_path
+             FROM photos
+             WHERE user_species IS NOT NULL AND user_species != model_species",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let conflicts: Vec<LabelConflict> = stmt
+        .query_map([], |row| {
+            let thumb: Option<String> = row.get(4)?;
+            Ok(LabelConflict {
+                path: row.get(0)?,
+                model_species: row.get(1)?,
+                model_confidence: row.get(2)?,
+                user_species: row.get(3)?,
+                thumb_path: thumb.map(|t| {
+                    data_dir
+                        .join("thumbs")
+                        .join(&t)
+                        .to_string_lossy()
+                        .into_owned()
+                }),
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(conflicts)
+}
+
+/// Accept model predictions for selected photos by clearing their user_species.
+#[tauri::command]
+pub fn resolve_label_conflicts(
+    db: tauri::State<'_, DbState>,
+    accept_model_paths: Vec<String>,
+) -> Result<(), String> {
+    if accept_model_paths.is_empty() {
+        return Ok(());
+    }
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    for path in &accept_model_paths {
+        conn.execute(
+            "UPDATE photos SET user_species = NULL WHERE path = ?1",
+            params![path],
+        )
+        .map_err(|e| format!("Failed to resolve conflict for {}: {}", path, e))?;
+    }
+    Ok(())
 }
 
 /// Recursively index all image files in a directory by lowercase filename.

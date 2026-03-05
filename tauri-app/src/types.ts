@@ -46,5 +46,18 @@ export interface ModelPaths {
   labelMap: string;
 }
 
+export interface FullRescanInfo {
+  purgedCount: number;
+  totalRemaining: number;
+}
+
+export interface LabelConflict {
+  path: string;
+  modelSpecies: string;
+  modelConfidence: number;
+  userSpecies: string;
+  thumbPath: string | null;
+}
+
 export type FilterMode = "all" | "found" | "not-found";
 export type SortMode = "name" | "rarity" | "date";
