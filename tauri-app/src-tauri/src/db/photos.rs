@@ -225,18 +225,20 @@ pub fn get_all_photos(conn: &Connection) -> Vec<PhotoRow> {
     .collect()
 }
 
-pub fn get_thumb_paths_by_folder(conn: &Connection, folder: &str) -> Vec<String> {
-    let mut stmt = conn
-        .prepare("SELECT thumb_path FROM photos WHERE folder = ?1 AND thumb_path IS NOT NULL")
-        .unwrap();
-    stmt.query_map(params![folder], |row| row.get(0))
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+pub fn reassign_folder_single(conn: &Connection, path: &str, new_folder: &str) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE photos SET folder = ?1 WHERE path = ?2",
+        params![new_folder, path],
+    )
 }
 
-pub fn delete_photos_by_folder(conn: &Connection, folder: &str) -> rusqlite::Result<usize> {
-    conn.execute("DELETE FROM photos WHERE folder = ?1", params![folder])
+pub fn get_thumb_path(conn: &Connection, path: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT thumb_path FROM photos WHERE path = ?1 AND thumb_path IS NOT NULL",
+        params![path],
+        |row| row.get(0),
+    )
+    .ok()
 }
 
 pub fn set_user_species(

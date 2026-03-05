@@ -160,18 +160,18 @@ export default function useBirdData() {
 
   async function handleAddFolder() {
     const picked = await invoke<string | null>("open_folder_dialog");
-    if (picked && !config.folders.includes(picked)) {
-      const updated = { folders: [...config.folders, picked] };
-      setConfig(updated);
-      await invoke("save_config", { folders: updated.folders });
-    }
+    if (!picked || config.folders.includes(picked)) return;
+
+    const updated = { folders: [...config.folders, picked] };
+    setConfig(updated);
+    await invoke("save_config", { folders: updated.folders });
   }
 
   async function handleRemoveFolder(folder: string) {
-    const updated = { folders: config.folders.filter((f) => f !== folder) };
-    setConfig(updated);
-    await invoke("save_config", { folders: updated.folders });
-    await invoke("delete_photos_by_folder", { folder });
+    const remainingFolders = config.folders.filter((f) => f !== folder);
+    setConfig({ folders: remainingFolders });
+    await invoke("save_config", { folders: remainingFolders });
+    await invoke("remove_folder_photos", { folder, remainingFolders });
     setScanResults(
       await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
     );

@@ -107,17 +107,35 @@ pub fn set_user_species(
 }
 
 #[tauri::command]
-pub fn delete_photos_by_folder(
+pub fn remove_folder_photos(
     db: tauri::State<'_, DbState>,
     folder: String,
-) -> Result<usize, String> {
+    remaining_folders: Vec<String>,
+) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    // Delete thumbnail files from disk before removing DB rows
+    // For each photo in the removed folder, check if another folder still covers it
+    let photo_paths = db::photos::get_photo_paths_in_folders(&conn, &[folder.clone()]);
     let thumbs_dir = project_dir().join("data/thumbs");
-    for thumb_name in db::photos::get_thumb_paths_by_folder(&conn, &folder) {
-        let _ = std::fs::remove_file(thumbs_dir.join(&thumb_name));
+
+    for path in &photo_paths {
+        let norm = path.replace('\\', "/");
+        let new_folder = remaining_folders.iter().find(|f| {
+            let nf = f.replace('\\', "/");
+            norm.starts_with(&nf)
+        });
+
+        if let Some(nf) = new_folder {
+            // Reassign to the covering folder
+            let _ = db::photos::reassign_folder_single(&conn, path, nf);
+        } else {
+            // No covering folder — delete thumbnail + DB row
+            if let Some(thumb) = db::photos::get_thumb_path(&conn, path) {
+                let _ = std::fs::remove_file(thumbs_dir.join(&thumb));
+            }
+            let _ = conn.execute("DELETE FROM photos WHERE path = ?1", rusqlite::params![path]);
+        }
     }
 
-    db::photos::delete_photos_by_folder(&conn, &folder).map_err(|e| e.to_string())
+    Ok(())
 }

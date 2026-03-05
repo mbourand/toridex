@@ -204,19 +204,20 @@ pub fn finalize_scan(
 // ---------------------------------------------------------------------------
 
 fn collect_images(folders: &[String]) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
     let mut paths = Vec::new();
     for folder in folders {
         let dir = Path::new(folder);
         if !dir.is_dir() {
             continue;
         }
-        collect_images_recursive(dir, &mut paths);
+        collect_images_recursive(dir, &mut paths, &mut seen);
     }
     paths.sort();
     paths
 }
 
-fn collect_images_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect_images_recursive(dir: &Path, out: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -224,9 +225,11 @@ fn collect_images_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_images_recursive(&path, out);
+            collect_images_recursive(&path, out, seen);
         } else if let Some(ext) = path.extension() {
-            if SUPPORTED_EXTENSIONS.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
+            if SUPPORTED_EXTENSIONS.contains(&ext.to_string_lossy().to_lowercase().as_str())
+                && seen.insert(path.clone())
+            {
                 out.push(path);
             }
         }

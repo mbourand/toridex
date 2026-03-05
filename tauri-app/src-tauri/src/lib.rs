@@ -29,7 +29,7 @@ pub fn run() {
             commands::load_config,
             commands::save_config,
             commands::set_user_species,
-            commands::delete_photos_by_folder,
+            commands::remove_folder_photos,
             scan::prepare_scan,
             scan::store_photo_result,
             scan::get_model_paths,
