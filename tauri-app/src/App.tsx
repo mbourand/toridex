@@ -21,6 +21,7 @@ export default function App() {
     missingPhotosStatus, relocatedPhotosCount, purgedPhotosCount,
     handleAddSearchFolder, handleMissingPhotosDone, handleSkipMissingPhotos,
     handleAddFolder, handleRemoveFolder, handleScan, handleFullRescan, cancelScan,
+    handleSetUserSpecies,
     labelConflicts, showLabelConflictModal, handleResolveConflicts,
   } = useBirdData();
 
@@ -85,7 +86,7 @@ export default function App() {
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
         {/* Unknown photos banner */}
-        <UnknownPanel photos={unknownPhotos} speciesDisplay={speciesDisplay} />
+        <UnknownPanel photos={unknownPhotos} speciesDisplay={speciesDisplay} allSpecies={species} onSetSpecies={handleSetUserSpecies} />
 
         {/* Species grid */}
         <div className="p-4">
@@ -146,6 +147,11 @@ export default function App() {
           }
           occurrenceCount={selected.occurrenceCount}
           speciesDisplay={speciesDisplay}
+          allSpecies={species}
+          onSetSpecies={async (path, sp) => {
+            await handleSetUserSpecies(path, sp);
+            setSelected(null);
+          }}
           onClose={() => setSelected(null)}
         />
       )}

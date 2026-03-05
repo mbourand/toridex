@@ -367,6 +367,13 @@ export default function useBirdData() {
     }
   }
 
+  async function handleSetUserSpecies(path: string, species: string | null) {
+    await invoke("set_user_species", { path, species });
+    setScanResults(
+      await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
+    );
+  }
+
   async function handleResolveConflicts(acceptModelPaths: string[]) {
     if (acceptModelPaths.length > 0) {
       await invoke("resolve_label_conflicts", { acceptModelPaths });
@@ -423,6 +430,8 @@ export default function useBirdData() {
     handleScan,
     handleFullRescan,
     cancelScan,
+    // Manual categorization
+    handleSetUserSpecies,
     // Label conflicts
     labelConflicts,
     showLabelConflictModal,

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { UserPhoto } from "../types";
+import { Species, UserPhoto } from "../types";
+import SpeciesPicker from "./SpeciesPicker";
 
 interface Props {
   title: string;
@@ -12,6 +13,10 @@ interface Props {
   occurrenceCount?: number;
   /** Resolve a scientificName to a display name (French or scientific) */
   speciesDisplay: (sciName: string) => string;
+  /** Full species list for the picker */
+  allSpecies?: Species[];
+  /** Called to set or clear user species override */
+  onSetSpecies?: (path: string, species: string | null) => void;
   onClose: () => void;
 }
 
@@ -22,9 +27,12 @@ export default function DetailModal({
   referenceImgSrc,
   occurrenceCount,
   speciesDisplay,
+  allSpecies,
+  onSetSpecies,
   onClose,
 }: Props) {
   const [idx, setIdx] = useState(0);
+  const [showPicker, setShowPicker] = useState(false);
 
   const hasPhotos = photos.length > 0;
   const current = hasPhotos ? photos[idx] : null;
@@ -34,6 +42,18 @@ export default function DetailModal({
     : (referenceImgSrc ?? null);
 
   const topK = current?.result.top_k ?? [];
+  const hasUserOverride = !!current?.result.userSpecies;
+  const canEdit = !!onSetSpecies && !!current;
+
+  function handleSelectSpecies(scientificName: string) {
+    if (!current || !onSetSpecies) return;
+    onSetSpecies(current.path, scientificName);
+  }
+
+  function handleReset() {
+    if (!current || !onSetSpecies) return;
+    onSetSpecies(current.path, null);
+  }
 
   return (
     <div
@@ -121,7 +141,7 @@ export default function DetailModal({
               {photos.map((p, i) => (
                 <button
                   key={p.path}
-                  onClick={() => setIdx(i)}
+                  onClick={() => { setIdx(i); setShowPicker(false); }}
                   className={`shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${
                     i === idx
                       ? "border-blue-500"
@@ -134,6 +154,24 @@ export default function DetailModal({
                   />
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* User override badge */}
+          {canEdit && hasUserOverride && (
+            <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+              <span className="text-yellow-400 text-xs font-medium">
+                Corrige manuellement
+              </span>
+              <span className="text-gray-500 text-xs">
+                (modele : {speciesDisplay(current!.result.modelSpecies ?? "")})
+              </span>
+              <button
+                onClick={handleReset}
+                className="ml-auto text-xs text-gray-400 hover:text-white transition-colors"
+              >
+                Reinitialiser
+              </button>
             </div>
           )}
 
@@ -170,42 +208,88 @@ export default function DetailModal({
             )}
           </div>
 
-          {/* Top-k */}
-          {current && topK.length > 0 && (
+          {/* Top-k predictions / Species picker */}
+          {current && !showPicker && topK.length > 0 && (
             <div>
               <p className="text-gray-500 text-xs mb-2">
                 Confiance : {(current.result.confidence * 100).toFixed(1)}%
               </p>
               <div className="space-y-1.5">
-                <p className="text-gray-500 text-xs">Top prédictions :</p>
-                {topK.map((k, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue-500 rounded-full"
-                        style={{ width: `${k.confidence * 100}%` }}
-                      />
-                    </div>
-                    <div className="w-36 min-w-0">
-                      <p className="text-gray-300 text-xs truncate leading-tight">
-                        {speciesDisplay(k.scientificName)}
-                      </p>
-                      <p className="text-gray-600 text-[10px] truncate italic leading-tight">
-                        {k.scientificName}
-                      </p>
-                    </div>
-                    <span className="text-gray-500 text-xs w-10 text-right">
-                      {(k.confidence * 100).toFixed(1)}%
+                <p className="text-gray-500 text-xs">
+                  Top predictions :
+                  {canEdit && (
+                    <span className="text-gray-600 ml-1">
+                      (cliquez pour corriger)
                     </span>
-                  </div>
-                ))}
+                  )}
+                </p>
+                {topK.map((k, i) => {
+                  const row = (
+                    <div key={i} className={`flex items-center gap-2 ${canEdit ? "cursor-pointer rounded-lg px-1 py-0.5 -mx-1 hover:bg-gray-800 transition-colors" : ""}`}
+                      onClick={canEdit ? () => handleSelectSpecies(k.scientificName) : undefined}
+                    >
+                      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 rounded-full"
+                          style={{ width: `${k.confidence * 100}%` }}
+                        />
+                      </div>
+                      <div className="w-36 min-w-0">
+                        <p className="text-gray-300 text-xs truncate leading-tight">
+                          {speciesDisplay(k.scientificName)}
+                        </p>
+                        <p className="text-gray-600 text-[10px] truncate italic leading-tight">
+                          {k.scientificName}
+                        </p>
+                      </div>
+                      <span className="text-gray-500 text-xs w-10 text-right">
+                        {(k.confidence * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  );
+                  return row;
+                })}
               </div>
+
+              {/* "Autre espece..." button */}
+              {canEdit && allSpecies && (
+                <button
+                  onClick={() => setShowPicker(true)}
+                  className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  Autre espece...
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Species picker (replaces top-k when open) */}
+          {current && showPicker && allSpecies && (
+            <SpeciesPicker
+              species={allSpecies}
+              onSelect={handleSelectSpecies}
+              onCancel={() => setShowPicker(false)}
+            />
+          )}
+
+          {/* For photos with no top-k (unknown), show picker button directly */}
+          {current && !showPicker && topK.length === 0 && canEdit && allSpecies && (
+            <div className="mt-2">
+              <p className="text-gray-500 text-xs mb-2">
+                Aucune prediction disponible.
+              </p>
+              <button
+                onClick={() => setShowPicker(true)}
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Assigner une espece...
+              </button>
             </div>
           )}
 
           {!hasPhotos && (
             <p className="text-gray-500 text-sm text-center mt-2">
-              Espèce non encore observée
+              Espece non encore observee
             </p>
           )}
         </div>
