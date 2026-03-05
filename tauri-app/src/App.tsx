@@ -12,7 +12,7 @@ export default function App() {
   const {
     species, dataDir, loading, error,
     search, setSearch, filter, setFilter, sort, setSort,
-    scanning, progress, modelStatus, config,
+    scanning, progress, thumbProgress, modelStatus, config,
     speciesDisplay, photosBySpecies, unknownPhotos, foundCount, visible,
     selected, setSelected,
     handleAddFolder, handleRemoveFolder, handleScan, cancelScan,
@@ -54,6 +54,7 @@ export default function App() {
       <ScanPanel
         scanning={scanning}
         progress={progress}
+        thumbProgress={thumbProgress}
         modelStatus={modelStatus}
         folders={config.folders}
         onAddFolder={handleAddFolder}

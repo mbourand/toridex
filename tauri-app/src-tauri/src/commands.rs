@@ -112,5 +112,12 @@ pub fn delete_photos_by_folder(
     folder: String,
 ) -> Result<usize, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    // Delete thumbnail files from disk before removing DB rows
+    let thumbs_dir = project_dir().join("data/thumbs");
+    for thumb_name in db::photos::get_thumb_paths_by_folder(&conn, &folder) {
+        let _ = std::fs::remove_file(thumbs_dir.join(&thumb_name));
+    }
+
     db::photos::delete_photos_by_folder(&conn, &folder).map_err(|e| e.to_string())
 }

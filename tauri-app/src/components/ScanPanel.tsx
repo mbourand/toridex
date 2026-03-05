@@ -1,6 +1,7 @@
 interface Props {
   scanning: boolean;
   progress: { current: number; total: number } | null;
+  thumbProgress: { current: number; total: number } | null;
   modelStatus: string;
   folders: string[];
   onAddFolder: () => void;
@@ -9,10 +10,12 @@ interface Props {
   onCancel: () => void;
 }
 
-export default function ScanPanel({ scanning, progress, modelStatus, folders, onAddFolder, onRemoveFolder, onScan, onCancel }: Props) {
-  const pct = progress && progress.total > 0
-    ? Math.round((progress.current / progress.total) * 100)
+export default function ScanPanel({ scanning, progress, thumbProgress, modelStatus, folders, onAddFolder, onRemoveFolder, onScan, onCancel }: Props) {
+  const activeProgress = thumbProgress ?? progress;
+  const pct = activeProgress && activeProgress.total > 0
+    ? Math.round((activeProgress.current / activeProgress.total) * 100)
     : 0;
+  const progressLabel = thumbProgress ? "Miniatures" : "Analyse";
 
   return (
     <div className="flex items-center gap-3 px-4 py-3 bg-gray-800 border-b border-gray-700 flex-wrap">
@@ -59,16 +62,17 @@ export default function ScanPanel({ scanning, progress, modelStatus, folders, on
         <span className="text-xs text-yellow-400 shrink-0">{modelStatus}</span>
       )}
 
-      {scanning && progress && (
+      {scanning && activeProgress && (
         <div className="flex-1 flex items-center gap-2 min-w-[200px]">
+          <span className="text-xs text-gray-400 shrink-0">{progressLabel}</span>
           <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-500 transition-all duration-200"
+              className={`h-full transition-all duration-200 ${thumbProgress ? "bg-green-500" : "bg-blue-500"}`}
               style={{ width: `${pct}%` }}
             />
           </div>
           <span className="text-xs text-gray-400 shrink-0">
-            {progress.current}/{progress.total} — {pct}%
+            {activeProgress.current}/{activeProgress.total} — {pct}%
           </span>
         </div>
       )}

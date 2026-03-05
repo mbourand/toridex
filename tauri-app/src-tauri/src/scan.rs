@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 use crate::commands::project_dir;
 use crate::db::{self, DbState};
@@ -154,7 +155,11 @@ pub fn get_model_paths() -> ModelPaths {
 
 /// Clean up stale DB entries and generate missing thumbnails.
 #[tauri::command]
-pub fn finalize_scan(db: tauri::State<'_, DbState>, folders: Vec<String>) -> Result<(), String> {
+pub fn finalize_scan(
+    app: AppHandle,
+    db: tauri::State<'_, DbState>,
+    folders: Vec<String>,
+) -> Result<(), String> {
     let image_paths = collect_images(&folders);
 
     // Remove stale entries
@@ -182,7 +187,9 @@ pub fn finalize_scan(db: tauri::State<'_, DbState>, folders: Vec<String>) -> Res
         db::photos::get_photos_needing_thumbnails(&conn)
     };
     if !needing_thumbs.is_empty() {
-        let generated = thumbs::generate_thumbnails(&needing_thumbs, &thumbs_dir);
+        let generated = thumbs::generate_thumbnails(&needing_thumbs, &thumbs_dir, |current, total| {
+            let _ = app.emit("thumb-progress", serde_json::json!({ "current": current, "total": total }));
+        });
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         for (orig, thumb_name) in &generated {
             let _ = db::photos::set_thumb_path(&conn, orig, thumb_name);

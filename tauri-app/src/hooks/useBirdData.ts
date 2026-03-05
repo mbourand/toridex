@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import {
   Species,
@@ -34,6 +34,10 @@ export default function useBirdData() {
 
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+  const [thumbProgress, setThumbProgress] = useState<{
     current: number;
     total: number;
   } | null>(null);
@@ -241,7 +245,17 @@ export default function useBirdData() {
       }
 
       // Step 4: Cleanup + thumbnails
-      await invoke("finalize_scan", { folders: foldersToScan });
+      let unlistenThumbs: UnlistenFn | undefined;
+      try {
+        unlistenThumbs = await listen<{ current: number; total: number }>(
+          "thumb-progress",
+          (e) => setThumbProgress(e.payload),
+        );
+        await invoke("finalize_scan", { folders: foldersToScan });
+      } finally {
+        unlistenThumbs?.();
+        setThumbProgress(null);
+      }
     } catch (e) {
       console.error("Scan error:", e);
     } finally {
@@ -275,6 +289,7 @@ export default function useBirdData() {
     // Scan state
     scanning,
     progress,
+    thumbProgress,
     modelStatus,
     config,
     // Derived
