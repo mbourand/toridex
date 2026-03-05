@@ -1,9 +1,12 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
+use rusqlite::params;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::db::{self, DbState};
+use crate::thumbs;
 
 /// Absolute path to the bird-classification project root (resolved at compile time).
 const PROJECT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
@@ -138,4 +141,237 @@ pub fn remove_folder_photos(
     }
 
     Ok(())
+}
+
+fn normalize_path(p: &str) -> String {
+    p.replace('\\', "/")
+}
+
+// ---------------------------------------------------------------------------
+// Missing photo detection & recovery
+// ---------------------------------------------------------------------------
+
+/// Check all photos in the DB and return paths that no longer exist on disk.
+#[tauri::command]
+pub fn check_missing_photos(db: tauri::State<'_, DbState>) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT path FROM photos WHERE model_species != '__skipped__'")
+        .map_err(|e| e.to_string())?;
+    let all_paths: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let missing: Vec<String> = all_paths
+        .into_iter()
+        .filter(|p| !Path::new(p).exists())
+        .collect();
+
+    Ok(missing)
+}
+
+/// Recursively scan the given folders, try to match missing photos by filename,
+/// and update DB paths + thumbnails for any matches found.
+/// Returns the list of paths that are still missing after relocation.
+#[tauri::command]
+pub fn relocate_missing_photos(
+    db: tauri::State<'_, DbState>,
+    missing_paths: Vec<String>,
+    search_folders: Vec<String>,
+) -> Result<Vec<String>, String> {
+    if missing_paths.is_empty() || search_folders.is_empty() {
+        return Ok(missing_paths);
+    }
+
+    // Build a filename → [(path, size)] index from the search folders
+    let mut file_index: HashMap<String, Vec<(String, i64)>> = HashMap::new();
+    for folder in &search_folders {
+        index_folder_recursive(Path::new(folder), &mut file_index);
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let thumbs_dir = project_dir().join("data/thumbs");
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    let mut still_missing: Vec<String> = Vec::new();
+
+    for old_path in &missing_paths {
+        // Extract filename from old path
+        let filename = Path::new(old_path)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        if filename.is_empty() {
+            still_missing.push(old_path.clone());
+            continue;
+        }
+
+        let candidates = match file_index.get(&filename) {
+            Some(c) => c,
+            None => {
+                still_missing.push(old_path.clone());
+                continue;
+            }
+        };
+
+        // Get the expected file_size from the DB to match against
+        let db_size: Option<i64> = tx
+            .query_row(
+                "SELECT file_size FROM photos WHERE path = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+
+        // Find a candidate matching by file size (or take the only candidate if size is unknown)
+        let new_path = if let Some(expected_size) = db_size {
+            candidates
+                .iter()
+                .find(|(_, size)| *size == expected_size)
+                .map(|(p, _)| normalize_path(p))
+        } else if candidates.len() == 1 {
+            Some(normalize_path(&candidates[0].0))
+        } else {
+            None
+        };
+
+        let new_path = match new_path {
+            Some(p) => p,
+            None => {
+                still_missing.push(old_path.clone());
+                continue;
+            }
+        };
+
+        // Check if the new path already exists in DB (e.g., already re-scanned)
+        let already_exists: bool = tx
+            .query_row(
+                "SELECT 1 FROM photos WHERE path = ?1",
+                params![new_path],
+                |_| Ok(()),
+            )
+            .is_ok();
+
+        if already_exists {
+            // New location already scanned — just delete the old (missing) row + its thumbnail
+            let old_thumb: Option<String> = tx
+                .query_row(
+                    "SELECT thumb_path FROM photos WHERE path = ?1",
+                    params![old_path],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+            if let Some(ref ot) = old_thumb {
+                let _ = std::fs::remove_file(thumbs_dir.join(ot));
+            }
+            tx.execute("DELETE FROM photos WHERE path = ?1", params![old_path])
+                .map_err(|e| format!("Failed to delete {}: {}", old_path, e))?;
+            continue;
+        }
+
+        // Get current thumb_path
+        let old_thumb: Option<String> = tx
+            .query_row(
+                "SELECT thumb_path FROM photos WHERE path = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+
+        // Rename thumbnail on disk
+        let new_thumb_name = thumbs::thumb_name(&new_path);
+        if let Some(ref ot) = old_thumb {
+            let old_file = thumbs_dir.join(ot);
+            let new_file = thumbs_dir.join(&new_thumb_name);
+            if old_file.exists() {
+                let _ = std::fs::rename(&old_file, &new_file);
+            }
+        }
+
+        // Find the best matching folder for the new path
+        let new_folder = search_folders
+            .iter()
+            .filter(|f| normalize_path(&new_path).starts_with(&normalize_path(f)))
+            .max_by_key(|f| f.len())
+            .cloned()
+            .unwrap_or_default();
+
+        let thumb_val = if old_thumb.is_some() {
+            Some(new_thumb_name)
+        } else {
+            None
+        };
+
+        tx.execute(
+            "UPDATE photos SET path = ?1, folder = ?2, thumb_path = ?3 WHERE path = ?4",
+            params![new_path, new_folder, thumb_val, old_path],
+        )
+        .map_err(|e| format!("Failed to relocate {}: {}", old_path, e))?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(still_missing)
+}
+
+/// Delete photos from DB + their thumbnails from disk for all given paths.
+#[tauri::command]
+pub fn purge_missing_photos(
+    db: tauri::State<'_, DbState>,
+    paths: Vec<String>,
+) -> Result<u64, String> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let thumbs_dir = project_dir().join("data/thumbs");
+    let mut count = 0u64;
+
+    for path in &paths {
+        if let Some(thumb) = db::photos::get_thumb_path(&conn, path) {
+            let _ = std::fs::remove_file(thumbs_dir.join(&thumb));
+        }
+        let deleted = conn
+            .execute("DELETE FROM photos WHERE path = ?1", params![path])
+            .unwrap_or(0);
+        count += deleted as u64;
+    }
+
+    Ok(count)
+}
+
+/// Recursively index all image files in a directory by lowercase filename.
+/// Stores (normalized_path, file_size) for each file so we can match by size.
+fn index_folder_recursive(dir: &Path, index: &mut HashMap<String, Vec<(String, i64)>>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            index_folder_recursive(&path, index);
+        } else if let Some(ext) = path.extension() {
+            let ext_lower = ext.to_string_lossy().to_lowercase();
+            if matches!(
+                ext_lower.as_str(),
+                "jpg" | "jpeg" | "png" | "tiff" | "tif" | "webp" | "bmp"
+            ) {
+                if let Some(name) = path.file_name() {
+                    let key = name.to_string_lossy().to_lowercase();
+                    let size = path.metadata().map(|m| m.len() as i64).unwrap_or(0);
+                    index
+                        .entry(key)
+                        .or_default()
+                        .push((normalize_path(&path.to_string_lossy()), size));
+                }
+            }
+        }
+    }
 }

@@ -5,6 +5,7 @@ import SearchFilterBar from "./components/SearchFilterBar";
 import ScanPanel from "./components/ScanPanel";
 import SpeciesCard from "./components/SpeciesCard";
 import DetailModal from "./components/DetailModal";
+import MissingPhotosModal from "./components/MissingPhotosModal";
 import UnknownPanel from "./components/UnknownPanel";
 import useBirdData from "./hooks/useBirdData";
 
@@ -15,6 +16,9 @@ export default function App() {
     scanning, progress, thumbProgress, modelStatus, config,
     speciesDisplay, photosBySpecies, unknownPhotos, foundCount, visible,
     selected, setSelected,
+    showMissingPhotosModal, missingPhotosCount,
+    missingPhotosStatus, relocatedPhotosCount, purgedPhotosCount,
+    handleAddSearchFolder, handleMissingPhotosDone, handleSkipMissingPhotos,
     handleAddFolder, handleRemoveFolder, handleScan, cancelScan,
   } = useBirdData();
 
@@ -101,6 +105,19 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* Missing photos modal */}
+      {showMissingPhotosModal && (
+        <MissingPhotosModal
+          missingCount={missingPhotosCount}
+          status={missingPhotosStatus}
+          relocatedCount={relocatedPhotosCount}
+          purgedCount={purgedPhotosCount}
+          onAddSearchFolder={handleAddSearchFolder}
+          onDone={handleMissingPhotosDone}
+          onSkip={handleSkipMissingPhotos}
+        />
+      )}
 
       {/* Detail modal for a known species */}
       {selected && (

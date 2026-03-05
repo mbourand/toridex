@@ -11,7 +11,7 @@ const THUMB_WIDTH: u32 = 800;
 const JPEG_QUALITY: u8 = 90;
 
 /// Deterministic thumbnail filename from original path.
-fn thumb_name(path: &str) -> String {
+pub fn thumb_name(path: &str) -> String {
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
     format!("{:016x}.jpg", hasher.finish())

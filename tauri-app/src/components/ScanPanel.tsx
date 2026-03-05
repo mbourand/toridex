@@ -31,7 +31,7 @@ export default function ScanPanel({ scanning, progress, thumbProgress, modelStat
         const short = f.split(/[/\\]/).pop() || f;
         return (
           <span key={f} title={f}
-            className="flex items-center gap-1 bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded-full max-w-[200px]">
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded-full max-w-[200px] bg-gray-700 text-gray-300">
             <span className="truncate">{short}</span>
             <button onClick={() => onRemoveFolder(f)} disabled={scanning}
               className="text-gray-500 hover:text-red-400 disabled:opacity-50 ml-0.5">

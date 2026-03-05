@@ -44,6 +44,13 @@ export default function useBirdData() {
   const [modelStatus, setModelStatus] = useState("");
   const [config, setConfig] = useState<AppConfig>({ folders: [] });
 
+  // Missing photos state
+  const [missingPhotos, setMissingPhotos] = useState<string[]>([]);
+  const [showMissingPhotosModal, setShowMissingPhotosModal] = useState(false);
+  const [missingPhotosStatus, setMissingPhotosStatus] = useState<"pending" | "searching" | "done">("pending");
+  const [relocatedPhotosCount, setRelocatedPhotosCount] = useState(0);
+  const [purgedPhotosCount, setPurgedPhotosCount] = useState(0);
+
   const [selected, setSelected] = useState<Species | null>(null);
 
   // Abort controller for cancelling scans
@@ -60,7 +67,15 @@ export default function useBirdData() {
         setScanResults(
           await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
         );
-        setConfig(await invoke<AppConfig>("load_config"));
+        const cfg = await invoke<AppConfig>("load_config");
+        setConfig(cfg);
+
+        // Check for missing photos on disk
+        const missingPaths = await invoke<string[]>("check_missing_photos");
+        if (missingPaths.length > 0) {
+          setMissingPhotos(missingPaths);
+          setShowMissingPhotosModal(true);
+        }
       } catch (e) {
         setError(String(e));
       } finally {
@@ -150,13 +165,14 @@ export default function useBirdData() {
       !loading &&
       config.folders.length > 0 &&
       !scanning &&
-      !autoScannedRef.current
+      !autoScannedRef.current &&
+      !showMissingPhotosModal
     ) {
       autoScannedRef.current = true;
       handleScan(config.folders);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, config.folders]);
+  }, [loading, config.folders, showMissingPhotosModal]);
 
   async function handleAddFolder() {
     const picked = await invoke<string | null>("open_folder_dialog");
@@ -175,6 +191,59 @@ export default function useBirdData() {
     setScanResults(
       await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
     );
+  }
+
+  // --- Missing photos handlers ---
+
+  async function handleAddSearchFolder() {
+    const picked = await invoke<string | null>("open_folder_dialog");
+    if (!picked) return;
+
+    setMissingPhotosStatus("searching");
+
+    try {
+      // Try to relocate missing photos by searching in this folder
+      const stillMissing = await invoke<string[]>("relocate_missing_photos", {
+        missingPaths: missingPhotos,
+        searchFolders: [picked],
+      });
+
+      const found = missingPhotos.length - stillMissing.length;
+      setRelocatedPhotosCount((prev) => prev + found);
+      setMissingPhotos(stillMissing);
+
+      // Add the folder to config if it's not already there
+      if (!config.folders.includes(picked)) {
+        const updated = { folders: [...config.folders, picked] };
+        setConfig(updated);
+        await invoke("save_config", { folders: updated.folders });
+      }
+    } finally {
+      setMissingPhotosStatus("pending");
+    }
+  }
+
+  async function handleMissingPhotosDone() {
+    // Purge any remaining missing photos
+    if (missingPhotos.length > 0) {
+      const purged = await invoke<number>("purge_missing_photos", {
+        paths: missingPhotos,
+      });
+      setPurgedPhotosCount(purged);
+    }
+
+    setMissingPhotosStatus("done");
+    setShowMissingPhotosModal(false);
+
+    // Refresh scan results after cleanup
+    setScanResults(
+      await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
+    );
+  }
+
+  function handleSkipMissingPhotos() {
+    // Close modal without purging — photos stay in DB for next launch
+    setShowMissingPhotosModal(false);
   }
 
   async function handleScan(folders?: string[]) {
@@ -301,6 +370,15 @@ export default function useBirdData() {
     // Selection
     selected,
     setSelected,
+    // Missing photos
+    showMissingPhotosModal,
+    missingPhotosCount: missingPhotos.length,
+    missingPhotosStatus,
+    relocatedPhotosCount,
+    purgedPhotosCount,
+    handleAddSearchFolder,
+    handleMissingPhotosDone,
+    handleSkipMissingPhotos,
     // Actions
     handleAddFolder,
     handleRemoveFolder,
