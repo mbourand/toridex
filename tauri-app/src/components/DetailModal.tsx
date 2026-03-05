@@ -44,6 +44,8 @@ export default function DetailModal({
   const topK = current?.result.top_k ?? [];
   const hasUserOverride = !!current?.result.userSpecies;
   const canEdit = !!onSetSpecies && !!current;
+  const effectiveSpecies = current?.result.scientificName ?? "";
+  const isNoBird = effectiveSpecies === "__skipped__" || effectiveSpecies === "__no_bird__";
 
   function handleSelectSpecies(scientificName: string) {
     if (!current || !onSetSpecies) return;
@@ -53,6 +55,11 @@ export default function DetailModal({
   function handleReset() {
     if (!current || !onSetSpecies) return;
     onSetSpecies(current.path, null);
+  }
+
+  function handleMarkNoBird() {
+    if (!current || !onSetSpecies) return;
+    onSetSpecies(current.path, "__no_bird__");
   }
 
   return (
@@ -141,7 +148,10 @@ export default function DetailModal({
               {photos.map((p, i) => (
                 <button
                   key={p.path}
-                  onClick={() => { setIdx(i); setShowPicker(false); }}
+                  onClick={() => {
+                    setIdx(i);
+                    setShowPicker(false);
+                  }}
                   className={`shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${
                     i === idx
                       ? "border-blue-500"
@@ -161,16 +171,16 @@ export default function DetailModal({
           {canEdit && hasUserOverride && (
             <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
               <span className="text-yellow-400 text-xs font-medium">
-                Corrige manuellement
+                Corrigé manuellement
               </span>
               <span className="text-gray-500 text-xs">
-                (modele : {speciesDisplay(current!.result.modelSpecies ?? "")})
+                (modèle : {speciesDisplay(current!.result.modelSpecies ?? "")})
               </span>
               <button
                 onClick={handleReset}
                 className="ml-auto text-xs text-gray-400 hover:text-white transition-colors"
               >
-                Reinitialiser
+                Réinitialiser
               </button>
             </div>
           )}
@@ -216,7 +226,7 @@ export default function DetailModal({
               </p>
               <div className="space-y-1.5">
                 <p className="text-gray-500 text-xs">
-                  Top predictions :
+                  Top prédictions :
                   {canEdit && (
                     <span className="text-gray-600 ml-1">
                       (cliquez pour corriger)
@@ -225,8 +235,14 @@ export default function DetailModal({
                 </p>
                 {topK.map((k, i) => {
                   const row = (
-                    <div key={i} className={`flex items-center gap-2 ${canEdit ? "cursor-pointer rounded-lg px-1 py-0.5 -mx-1 hover:bg-gray-800 transition-colors" : ""}`}
-                      onClick={canEdit ? () => handleSelectSpecies(k.scientificName) : undefined}
+                    <div
+                      key={i}
+                      className={`flex items-center gap-2 ${canEdit ? "cursor-pointer rounded-lg px-1 py-0.5 -mx-1 hover:bg-gray-800 transition-colors" : ""}`}
+                      onClick={
+                        canEdit
+                          ? () => handleSelectSpecies(k.scientificName)
+                          : undefined
+                      }
                     >
                       <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
                         <div
@@ -251,14 +267,26 @@ export default function DetailModal({
                 })}
               </div>
 
-              {/* "Autre espece..." button */}
-              {canEdit && allSpecies && (
-                <button
-                  onClick={() => setShowPicker(true)}
-                  className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  Autre espece...
-                </button>
+              {/* Action buttons */}
+              {canEdit && (
+                <div className="flex items-center gap-3 mt-3">
+                  {allSpecies && (
+                    <button
+                      onClick={() => setShowPicker(true)}
+                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      Autre espece...
+                    </button>
+                  )}
+                  {!isNoBird && (
+                    <button
+                      onClick={handleMarkNoBird}
+                      className="text-xs text-gray-400 hover:text-red-400 transition-colors"
+                    >
+                      Pas d'oiseau
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -272,24 +300,39 @@ export default function DetailModal({
             />
           )}
 
-          {/* For photos with no top-k (unknown), show picker button directly */}
-          {current && !showPicker && topK.length === 0 && canEdit && allSpecies && (
-            <div className="mt-2">
-              <p className="text-gray-500 text-xs mb-2">
-                Aucune prediction disponible.
-              </p>
-              <button
-                onClick={() => setShowPicker(true)}
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                Assigner une espece...
-              </button>
-            </div>
-          )}
+          {/* For photos with no top-k (unknown/skipped), show picker button directly */}
+          {current &&
+            !showPicker &&
+            topK.length === 0 &&
+            canEdit && (
+              <div className="mt-2">
+                <p className="text-gray-500 text-xs mb-2">
+                  Aucune prediction disponible.
+                </p>
+                <div className="flex items-center gap-3">
+                  {allSpecies && (
+                    <button
+                      onClick={() => setShowPicker(true)}
+                      className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      Assigner une espece...
+                    </button>
+                  )}
+                  {!isNoBird && (
+                    <button
+                      onClick={handleMarkNoBird}
+                      className="text-sm text-gray-400 hover:text-red-400 transition-colors"
+                    >
+                      Pas d'oiseau
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
           {!hasPhotos && (
             <p className="text-gray-500 text-sm text-center mt-2">
-              Espece non encore observee
+              Espèce non encore observée
             </p>
           )}
         </div>

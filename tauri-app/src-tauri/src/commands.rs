@@ -178,7 +178,7 @@ fn normalize_path(p: &str) -> String {
 pub fn check_missing_photos(db: tauri::State<'_, DbState>) -> Result<Vec<String>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT path FROM photos WHERE model_species != '__skipped__'")
+        .prepare("SELECT path FROM photos")
         .map_err(|e| e.to_string())?;
     let all_paths: Vec<String> = stmt
         .query_map([], |row| row.get(0))

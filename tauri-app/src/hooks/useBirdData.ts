@@ -97,6 +97,10 @@ export default function useBirdData() {
     for (const s of species) {
       map.set(s.scientificName, s.frenchName || s.scientificName);
     }
+    // Pseudo-species display names
+    map.set("__unknown__", "Incertain");
+    map.set("__skipped__", "Pas d'oiseau");
+    map.set("__no_bird__", "Pas d'oiseau");
     return (sciName: string) => map.get(sciName) ?? sciName;
   }, [species]);
 
@@ -116,9 +120,15 @@ export default function useBirdData() {
     return map;
   }, [scanResults]);
 
+  const PSEUDO_SPECIES = new Set(["__unknown__", "__skipped__", "__no_bird__"]);
+
   const unknownPhotos = photosBySpecies.get("__unknown__") ?? [];
+  const noBirdPhotos = useMemo(() => [
+    ...(photosBySpecies.get("__skipped__") ?? []),
+    ...(photosBySpecies.get("__no_bird__") ?? []),
+  ], [photosBySpecies]);
   const foundCount = [...photosBySpecies.keys()].filter(
-    (k) => k !== "__unknown__",
+    (k) => !PSEUDO_SPECIES.has(k),
   ).length;
 
   // Filter + search + sort
@@ -410,6 +420,7 @@ export default function useBirdData() {
     speciesDisplay,
     photosBySpecies,
     unknownPhotos,
+    noBirdPhotos,
     foundCount,
     visible,
     // Selection

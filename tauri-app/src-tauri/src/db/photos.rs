@@ -200,7 +200,6 @@ pub fn get_all_photos(conn: &Connection) -> Vec<PhotoRow> {
                     model_confidence, exif_date, exif_lat, exif_lon,
                     top_k, thumb_path, user_species
              FROM photos
-             WHERE model_species != '__skipped__'
              ORDER BY path",
         )
         .unwrap();
@@ -255,7 +254,7 @@ pub fn set_user_species(
 
 pub fn get_photos_needing_thumbnails(conn: &Connection) -> Vec<String> {
     let mut stmt = conn
-        .prepare("SELECT path FROM photos WHERE thumb_path IS NULL AND model_species != '__skipped__'")
+        .prepare("SELECT path FROM photos WHERE thumb_path IS NULL")
         .unwrap();
     stmt.query_map([], |row| row.get(0))
         .unwrap()

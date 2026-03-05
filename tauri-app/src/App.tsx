@@ -7,7 +7,7 @@ import SpeciesCard from "./components/SpeciesCard";
 import DetailModal from "./components/DetailModal";
 import MissingPhotosModal from "./components/MissingPhotosModal";
 import LabelConflictModal from "./components/LabelConflictModal";
-import UnknownPanel from "./components/UnknownPanel";
+import PseudoSpeciesCard from "./components/PseudoSpeciesCard";
 import useBirdData from "./hooks/useBirdData";
 
 export default function App() {
@@ -15,7 +15,7 @@ export default function App() {
     species, dataDir, loading, error,
     search, setSearch, filter, setFilter, sort, setSort,
     scanning, progress, thumbProgress, modelStatus, config,
-    speciesDisplay, photosBySpecies, unknownPhotos, foundCount, visible,
+    speciesDisplay, photosBySpecies, unknownPhotos, noBirdPhotos, foundCount, visible,
     selected, setSelected,
     showMissingPhotosModal, missingPhotosCount,
     missingPhotosStatus, relocatedPhotosCount, purgedPhotosCount,
@@ -85,17 +85,40 @@ export default function App() {
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Unknown photos banner */}
-        <UnknownPanel photos={unknownPhotos} speciesDisplay={speciesDisplay} allSpecies={species} onSetSpecies={handleSetUserSpecies} />
-
-        {/* Species grid */}
         <div className="p-4">
-          {visible.length === 0 ? (
+          {visible.length === 0 && unknownPhotos.length === 0 && noBirdPhotos.length === 0 ? (
             <div className="text-center text-gray-500 mt-20 text-sm">
               Aucune espèce trouvée.
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              {/* Pseudo-species cards (shown for "all" and "found" filters) */}
+              {filter !== "not-found" && (
+                <>
+                  <PseudoSpeciesCard
+                    label="Incertains"
+                    icon="?"
+                    borderClass="ring-yellow-500/50"
+                    badgeClass="bg-yellow-500"
+                    photos={unknownPhotos}
+                    speciesDisplay={speciesDisplay}
+                    allSpecies={species}
+                    onSetSpecies={handleSetUserSpecies}
+                  />
+                  <PseudoSpeciesCard
+                    label="Pas d'oiseau"
+                    icon="🚫"
+                    borderClass="ring-gray-500/50"
+                    badgeClass="bg-gray-500"
+                    photos={noBirdPhotos}
+                    speciesDisplay={speciesDisplay}
+                    allSpecies={species}
+                    onSetSpecies={handleSetUserSpecies}
+                  />
+                </>
+              )}
+
+              {/* Species cards */}
               {visible.map((s) => (
                 <SpeciesCard
                   key={s.idx}
