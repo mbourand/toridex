@@ -5,6 +5,7 @@ export interface Species {
   frenchName: string;
   occurrenceCount: number;
   referencePhotoId: number | null;
+  referencePhotoUrl: string | null;
 }
 
 export interface PhotoResult {

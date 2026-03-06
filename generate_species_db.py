@@ -41,10 +41,12 @@ def main() -> None:
     with open(FRENCH_NAMES_PATH, encoding="utf-8") as f:
         french_names: dict[str, str] = json.load(f)
 
-    # 4. Image index: pick one reference photo per species.
+    # 4. Image index: pick one reference photo URL per species.
     print("Loading image index...")
-    df_images = pd.read_parquet(IMAGE_INDEX_PATH, columns=["photo_id", "scientificName"])
-    reference_photos = df_images.groupby("scientificName")["photo_id"].first().to_dict()
+    df_images = pd.read_parquet(IMAGE_INDEX_PATH, columns=["photo_id", "photo_url", "scientificName"])
+    ref_rows = df_images.groupby("scientificName").first()
+    reference_photos = ref_rows["photo_id"].to_dict()
+    reference_urls = ref_rows["photo_url"].to_dict()
 
     # 5. Build species list sorted by idx
     species_list = []
@@ -61,6 +63,7 @@ def main() -> None:
 
         occurrence_count = binomial_to_count.get(binomial, 0)
         reference_photo_id = reference_photos.get(binomial)
+        reference_url = reference_urls.get(binomial)
         if reference_photo_id is None:
             missing_photo.append(binomial)
 
@@ -71,6 +74,7 @@ def main() -> None:
             "frenchName": french_name,
             "occurrenceCount": int(occurrence_count),
             "referencePhotoId": int(reference_photo_id) if reference_photo_id is not None else None,
+            "referencePhotoUrl": reference_url,
         })
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)

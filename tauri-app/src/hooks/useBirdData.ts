@@ -26,7 +26,6 @@ export default function useBirdData() {
     string,
     PhotoResult
   > | null>(null);
-  const [dataDir, setDataDir] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,9 +65,6 @@ export default function useBirdData() {
   useEffect(() => {
     async function load() {
       try {
-        const dir = await invoke<string>("get_data_dir");
-        setDataDir(dir);
-
         setSpecies(await invoke<Species[]>("load_species_db"));
         setScanResults(
           await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
@@ -402,7 +398,6 @@ export default function useBirdData() {
   return {
     // Data
     species,
-    dataDir,
     loading,
     error,
     // Search/filter

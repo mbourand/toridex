@@ -87,7 +87,7 @@ export default function DetailModal({
               <img
                 src={imgSrc}
                 alt={title}
-                className={`w-full h-full object-cover ${!hasPhotos ? "grayscale opacity-40" : ""}`}
+                className={`w-full h-full object-cover`}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-600">
@@ -303,14 +303,15 @@ export default function DetailModal({
                       Espèce non répertoriée
                     </button>
                   )}
-                  {effectiveSpecies !== "__no_bird__" && effectiveSpecies !== "__skipped__" && (
-                    <button
-                      onClick={handleMarkNoBird}
-                      className="text-xs text-gray-400 hover:text-red-400 transition-colors"
-                    >
-                      Pas d'oiseau
-                    </button>
-                  )}
+                  {effectiveSpecies !== "__no_bird__" &&
+                    effectiveSpecies !== "__skipped__" && (
+                      <button
+                        onClick={handleMarkNoBird}
+                        className="text-xs text-gray-400 hover:text-red-400 transition-colors"
+                      >
+                        Pas d'oiseau
+                      </button>
+                    )}
                 </div>
               )}
             </div>
@@ -326,40 +327,38 @@ export default function DetailModal({
           )}
 
           {/* For photos with no top-k (unknown/skipped), show picker button directly */}
-          {current &&
-            !showPicker &&
-            topK.length === 0 &&
-            canEdit && (
-              <div className="mt-2">
-                <p className="text-gray-500 text-xs mb-2">
-                  Aucune prediction disponible.
-                </p>
-                <div className="flex items-center gap-3 flex-wrap">
-                  {allSpecies && (
-                    <button
-                      onClick={() => setShowPicker(true)}
-                      className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      Assigner une espece...
-                    </button>
-                  )}
-                  {effectiveSpecies !== "__unknown__" && (
-                    <button
-                      onClick={handleMarkUncertain}
-                      className="text-sm text-gray-400 hover:text-yellow-400 transition-colors"
-                    >
-                      Incertain
-                    </button>
-                  )}
-                  {effectiveSpecies !== "__unlisted__" && (
-                    <button
-                      onClick={handleMarkUnlisted}
-                      className="text-sm text-gray-400 hover:text-orange-400 transition-colors"
-                    >
-                      Espèce non répertoriée
-                    </button>
-                  )}
-                  {effectiveSpecies !== "__no_bird__" && effectiveSpecies !== "__skipped__" && (
+          {current && !showPicker && topK.length === 0 && canEdit && (
+            <div className="mt-2">
+              <p className="text-gray-500 text-xs mb-2">
+                Aucune prediction disponible.
+              </p>
+              <div className="flex items-center gap-3 flex-wrap">
+                {allSpecies && (
+                  <button
+                    onClick={() => setShowPicker(true)}
+                    className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    Assigner une espece...
+                  </button>
+                )}
+                {effectiveSpecies !== "__unknown__" && (
+                  <button
+                    onClick={handleMarkUncertain}
+                    className="text-sm text-gray-400 hover:text-yellow-400 transition-colors"
+                  >
+                    Incertain
+                  </button>
+                )}
+                {effectiveSpecies !== "__unlisted__" && (
+                  <button
+                    onClick={handleMarkUnlisted}
+                    className="text-sm text-gray-400 hover:text-orange-400 transition-colors"
+                  >
+                    Espèce non répertoriée
+                  </button>
+                )}
+                {effectiveSpecies !== "__no_bird__" &&
+                  effectiveSpecies !== "__skipped__" && (
                     <button
                       onClick={handleMarkNoBird}
                       className="text-sm text-gray-400 hover:text-red-400 transition-colors"
@@ -367,9 +366,9 @@ export default function DetailModal({
                       Pas d'oiseau
                     </button>
                   )}
-                </div>
               </div>
-            )}
+            </div>
+          )}
 
           {!hasPhotos && (
             <p className="text-gray-500 text-sm text-center mt-2">

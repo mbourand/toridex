@@ -4,7 +4,6 @@ import { Species, UserPhoto } from "../types";
 interface Props {
   species: Species;
   photos: UserPhoto[];
-  dataDir: string;
   onClick: () => void;
 }
 
@@ -15,7 +14,7 @@ function rarityLabel(count: number): { label: string; className: string } {
   return { label: "Très commun", className: "bg-green-500" };
 }
 
-export default function SpeciesCard({ species, photos, dataDir, onClick }: Props) {
+export default function SpeciesCard({ species, photos, onClick }: Props) {
   const found = photos.length > 0;
   const best = found ? photos[0] : null;
   const rarity = rarityLabel(species.occurrenceCount);
@@ -23,8 +22,8 @@ export default function SpeciesCard({ species, photos, dataDir, onClick }: Props
   let imgSrc: string | null = null;
   if (best) {
     imgSrc = convertFileSrc(best.result.thumbPath ?? best.path);
-  } else if (species.referencePhotoId !== null) {
-    imgSrc = convertFileSrc(`${dataDir}/images/${species.referencePhotoId}.jpg`);
+  } else if (species.referencePhotoUrl) {
+    imgSrc = species.referencePhotoUrl;
   }
 
   return (
@@ -38,7 +37,7 @@ export default function SpeciesCard({ species, photos, dataDir, onClick }: Props
           <img
             src={imgSrc}
             alt={species.frenchName || species.scientificName}
-            className={`w-full h-full object-cover transition-all duration-300 ${!found ? "grayscale opacity-40 group-hover:opacity-50" : ""}`}
+            className={`w-full h-full object-cover transition-all duration-300 ${!found ? "brightness-[0.3] group-hover:brightness-[0.4]" : ""}`}
             loading="lazy"
           />
         ) : (

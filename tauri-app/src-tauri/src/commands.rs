@@ -35,7 +35,14 @@ const PROJECT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 pub(crate) fn project_dir() -> PathBuf {
     let p = PathBuf::from(PROJECT_DIR);
-    p.canonicalize().unwrap_or(p)
+    let canon = p.canonicalize().unwrap_or(p);
+    // Strip \\?\ prefix that canonicalize() adds on Windows — it breaks asset:// URLs
+    let s = canon.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        canon
+    }
 }
 
 #[tauri::command]

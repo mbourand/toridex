@@ -1,4 +1,3 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
 
 import SearchFilterBar from "./components/SearchFilterBar";
@@ -12,7 +11,7 @@ import useBirdData from "./hooks/useBirdData";
 
 export default function App() {
   const {
-    species, dataDir, loading, error,
+    species, loading, error,
     search, setSearch, filter, setFilter, sort, setSort,
     scanning, progress, thumbProgress, modelStatus, config,
     speciesDisplay, photosBySpecies, unknownPhotos, noBirdPhotos, unlistedPhotos, foundCount, visible,
@@ -134,7 +133,6 @@ export default function App() {
                   key={s.idx}
                   species={s}
                   photos={photosBySpecies.get(s.scientificName) ?? []}
-                  dataDir={dataDir}
                   onClick={() => setSelected(s)}
                 />
               ))}
@@ -171,13 +169,7 @@ export default function App() {
           title={selected.frenchName || selected.scientificName}
           subtitle={selected.frenchName ? selected.scientificName : undefined}
           photos={photosBySpecies.get(selected.scientificName) ?? []}
-          referenceImgSrc={
-            selected.referencePhotoId !== null
-              ? convertFileSrc(
-                  `${dataDir}/images/${selected.referencePhotoId}.jpg`,
-                )
-              : undefined
-          }
+          referenceImgSrc={selected.referencePhotoUrl ?? undefined}
           occurrenceCount={selected.occurrenceCount}
           speciesDisplay={speciesDisplay}
           allSpecies={species}
