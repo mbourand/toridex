@@ -83,11 +83,11 @@ export default function DetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 rounded-2xl w-full w-[90vw] overflow-hidden shadow-2xl flex flex-row h-[90vh]"
+        className="bg-gray-900 rounded-2xl w-full max-w-2xl xl:max-w-none xl:w-[90vw] overflow-hidden shadow-2xl flex flex-col xl:flex-row max-h-[90vh] xl:h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Left: Image + nav */}
-        <div className="relative bg-gray-800 flex-1 min-w-0 flex items-center justify-center">
+        <div className="relative bg-gray-800 flex-shrink-0 h-[50vh] xl:h-auto xl:flex-1 min-w-0 flex items-center justify-center">
           {imgSrc ? (
             <img
               src={imgSrc}
@@ -95,7 +95,7 @@ export default function DetailModal({
               className="w-full h-full object-contain"
             />
           ) : (
-            <div className="w-full h-full min-h-[300px] flex items-center justify-center text-gray-600">
+            <div className="w-full h-full flex items-center justify-center text-gray-600">
               <svg
                 className="w-16 h-16"
                 fill="none"
@@ -191,7 +191,7 @@ export default function DetailModal({
         </div>
 
         {/* Right: Details */}
-        <div className="w-[400px] flex-shrink-0 flex flex-col overflow-y-auto border-l border-gray-800">
+        <div className="xl:w-[400px] flex-shrink-0 flex flex-col overflow-y-auto border-t xl:border-t-0 xl:border-l border-gray-800">
           <div className="p-5">
             <h2 className="text-white text-xl font-bold leading-tight">
               {title}
