@@ -201,7 +201,7 @@ pub fn get_all_photos(conn: &Connection) -> Vec<PhotoRow> {
             "SELECT path, model_species_idx, model_species,
                     COALESCE(user_species, model_species) AS effective_species,
                     model_confidence, exif_date, exif_lat, exif_lon,
-                    top_k, thumb_path, user_species
+                    top_k, file_mtime, thumb_path, user_species
              FROM photos
              ORDER BY path",
         )
@@ -218,8 +218,9 @@ pub fn get_all_photos(conn: &Connection) -> Vec<PhotoRow> {
             exif_lat: row.get(6)?,
             exif_lon: row.get(7)?,
             top_k: row.get(8)?,
-            thumb_path: row.get(9)?,
-            user_species: row.get(10)?,
+            file_mtime: row.get(9)?,
+            thumb_path: row.get(10)?,
+            user_species: row.get(11)?,
         })
     })
     .unwrap()

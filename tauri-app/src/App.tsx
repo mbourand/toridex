@@ -1,28 +1,88 @@
 import "./App.css";
 
-import SearchFilterBar from "./components/SearchFilterBar";
+import { Routes, Route, NavLink } from "react-router-dom";
+
 import ScanPanel from "./components/ScanPanel";
-import SpeciesCard from "./components/SpeciesCard";
-import DetailModal from "./components/DetailModal";
 import MissingPhotosModal from "./components/MissingPhotosModal";
 import LabelConflictModal from "./components/LabelConflictModal";
-import PseudoSpeciesCard from "./components/PseudoSpeciesCard";
+import PokedexTab from "./components/PokedexTab";
+import PseudoSpeciesTab from "./components/PseudoSpeciesTab";
 import useBirdData from "./hooks/useBirdData";
+
+function NavTab({
+  to,
+  label,
+  count,
+}: {
+  to: string;
+  label: string;
+  count?: number;
+}) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        `px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1.5 ${
+          isActive
+            ? "bg-gray-700 text-white"
+            : "text-gray-400 hover:text-white hover:bg-gray-800"
+        }`
+      }
+    >
+      {label}
+      {count !== undefined && count > 0 && (
+        <span className="bg-gray-600 text-gray-200 text-xs px-1.5 py-0.5 rounded-full leading-none">
+          {count}
+        </span>
+      )}
+    </NavLink>
+  );
+}
 
 export default function App() {
   const {
-    species, loading, error,
-    search, setSearch, filter, setFilter, sort, setSort,
-    scanning, progress, thumbProgress, modelStatus, config,
-    speciesDisplay, photosBySpecies, unknownPhotos, noBirdPhotos, unlistedPhotos, foundCount, visible,
-    selected, setSelected,
-    showMissingPhotosModal, missingPhotosCount,
-    missingPhotosStatus, relocatedPhotosCount, purgedPhotosCount,
-    handleAddSearchFolder, handleMissingPhotosDone, handleSkipMissingPhotos,
-    handleAddFolder, handleRemoveFolder, handleScan, handleFullRescan, cancelScan,
+    species,
+    loading,
+    error,
+    search,
+    setSearch,
+    filter,
+    setFilter,
+    sort,
+    setSort,
+    scanning,
+    progress,
+    thumbProgress,
+    modelStatus,
+    config,
+    speciesDisplay,
+    photosBySpecies,
+    unknownPhotos,
+    noBirdPhotos,
+    unlistedPhotos,
+    foundCount,
+    visible,
+    selected,
+    setSelected,
+    showMissingPhotosModal,
+    missingPhotosCount,
+    missingPhotosStatus,
+    relocatedPhotosCount,
+    purgedPhotosCount,
+    handleAddSearchFolder,
+    handleMissingPhotosDone,
+    handleSkipMissingPhotos,
+    handleAddFolder,
+    handleRemoveFolder,
+    handleScan,
+    handleFullRescan,
+    cancelScan,
     handleSetUserSpecies,
-    frontPhotos, handleSetFrontPhoto,
-    labelConflicts, showLabelConflictModal, handleResolveConflicts,
+    frontPhotos,
+    handleSetFrontPhoto,
+    labelConflicts,
+    showLabelConflictModal,
+    handleResolveConflicts,
   } = useBirdData();
 
   if (loading) {
@@ -51,7 +111,7 @@ export default function App() {
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 bg-gray-900 border-b border-gray-800 flex items-center gap-3">
-        <h1 className="text-lg font-bold tracking-tight">🐦 Bird Pokédex</h1>
+        <h1 className="text-lg font-bold tracking-tight">🐦 ToriDex</h1>
         <span className="text-sm text-gray-400">
           {foundCount}/{species.length} espèces observées
         </span>
@@ -71,76 +131,88 @@ export default function App() {
         onCancel={cancelScan}
       />
 
-      {/* Search/filter bar */}
-      <SearchFilterBar
-        search={search}
-        filter={filter}
-        sort={sort}
-        foundCount={foundCount}
-        totalCount={species.length}
-        onSearch={setSearch}
-        onFilter={setFilter}
-        onSort={setSort}
-      />
-
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-4">
-          {visible.length === 0 && unknownPhotos.length === 0 && noBirdPhotos.length === 0 && unlistedPhotos.length === 0 ? (
-            <div className="text-center text-gray-500 mt-20 text-sm">
-              Aucune espèce trouvée.
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {/* Pseudo-species cards (shown for "all" and "found" filters) */}
-              {filter !== "not-found" && (
-                <>
-                  <PseudoSpeciesCard
-                    label="Incertains"
-                    icon="?"
-                    borderClass="ring-yellow-500/50"
-                    badgeClass="bg-yellow-500"
-                    photos={unknownPhotos}
-                    speciesDisplay={speciesDisplay}
-                    allSpecies={species}
-                    onSetSpecies={handleSetUserSpecies}
-                  />
-                  <PseudoSpeciesCard
-                    label="Espèce non répertoriée"
-                    icon="❓"
-                    borderClass="ring-orange-500/50"
-                    badgeClass="bg-orange-500"
-                    photos={unlistedPhotos}
-                    speciesDisplay={speciesDisplay}
-                    allSpecies={species}
-                    onSetSpecies={handleSetUserSpecies}
-                  />
-                  <PseudoSpeciesCard
-                    label="Pas d'oiseau"
-                    icon="🚫"
-                    borderClass="ring-gray-500/50"
-                    badgeClass="bg-gray-500"
-                    photos={noBirdPhotos}
-                    speciesDisplay={speciesDisplay}
-                    allSpecies={species}
-                    onSetSpecies={handleSetUserSpecies}
-                  />
-                </>
-              )}
-
-              {/* Species cards */}
-              {visible.map((s) => (
-                <SpeciesCard
-                  key={s.idx}
-                  species={s}
-                  photos={photosBySpecies.get(s.scientificName) ?? []}
-                  onClick={() => setSelected(s)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Navigation tabs */}
+      <div className="px-4 py-2 bg-gray-900/50 border-b border-gray-800 flex items-center gap-2 overflow-x-auto">
+        <NavTab to="/" label="Mon Dex" count={foundCount} />
+        <NavTab
+          to="/uncertain"
+          label="Incertains"
+          count={unknownPhotos.length}
+        />
+        <NavTab
+          to="/unlisted"
+          label="Non répertoriées"
+          count={unlistedPhotos.length}
+        />
+        <NavTab
+          to="/no-bird"
+          label="Pas d'oiseau"
+          count={noBirdPhotos.length}
+        />
       </div>
+
+      {/* Route content */}
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <PokedexTab
+              species={species}
+              visible={visible}
+              photosBySpecies={photosBySpecies}
+              foundCount={foundCount}
+              search={search}
+              setSearch={setSearch}
+              filter={filter}
+              setFilter={setFilter}
+              sort={sort}
+              setSort={setSort}
+              selected={selected}
+              setSelected={setSelected}
+              speciesDisplay={speciesDisplay}
+              handleSetUserSpecies={handleSetUserSpecies}
+              frontPhotos={frontPhotos}
+              handleSetFrontPhoto={handleSetFrontPhoto}
+            />
+          }
+        />
+        <Route
+          path="/uncertain"
+          element={
+            <PseudoSpeciesTab
+              title="Incertains"
+              photos={unknownPhotos}
+              speciesDisplay={speciesDisplay}
+              allSpecies={species}
+              onSetSpecies={handleSetUserSpecies}
+            />
+          }
+        />
+        <Route
+          path="/unlisted"
+          element={
+            <PseudoSpeciesTab
+              title="Espèce non répertoriée"
+              photos={unlistedPhotos}
+              speciesDisplay={speciesDisplay}
+              allSpecies={species}
+              onSetSpecies={handleSetUserSpecies}
+            />
+          }
+        />
+        <Route
+          path="/no-bird"
+          element={
+            <PseudoSpeciesTab
+              title="Pas d'oiseau"
+              photos={noBirdPhotos}
+              speciesDisplay={speciesDisplay}
+              allSpecies={species}
+              onSetSpecies={handleSetUserSpecies}
+            />
+          }
+        />
+      </Routes>
 
       {/* Missing photos modal */}
       {showMissingPhotosModal && (
@@ -161,26 +233,6 @@ export default function App() {
           conflicts={labelConflicts}
           speciesDisplay={speciesDisplay}
           onResolve={handleResolveConflicts}
-        />
-      )}
-
-      {/* Detail modal for a known species */}
-      {selected && (
-        <DetailModal
-          title={selected.frenchName || selected.scientificName}
-          subtitle={selected.frenchName ? selected.scientificName : undefined}
-          photos={photosBySpecies.get(selected.scientificName) ?? []}
-          referenceImgSrc={selected.referencePhotoUrl ?? undefined}
-          occurrenceCount={selected.occurrenceCount}
-          speciesDisplay={speciesDisplay}
-          allSpecies={species}
-          onSetSpecies={async (path, sp) => {
-            await handleSetUserSpecies(path, sp);
-            setSelected(null);
-          }}
-          frontPhotoPath={frontPhotos[selected.scientificName] ?? null}
-          onSetFrontPhoto={(path) => handleSetFrontPhoto(selected.scientificName, path)}
-          onClose={() => setSelected(null)}
         />
       )}
     </div>

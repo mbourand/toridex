@@ -79,6 +79,9 @@ pub fn load_scan_results(app: AppHandle, db: tauri::State<'_, DbState>) -> Resul
         if let Some(ref us) = photo.user_species {
             entry.insert("userSpecies".into(), us.clone().into());
         }
+        if let Some(mtime) = photo.file_mtime {
+            entry.insert("fileMtime".into(), mtime.into());
+        }
         entry.insert("modelSpecies".into(), photo.model_species.clone().into());
 
         photos_map.insert(photo.path.clone(), serde_json::Value::Object(entry));

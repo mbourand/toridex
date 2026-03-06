@@ -23,6 +23,7 @@ pub struct PhotoRow {
     pub exif_lat: Option<f64>,
     pub exif_lon: Option<f64>,
     pub top_k: Option<String>, // raw JSON string
+    pub file_mtime: Option<f64>,
     pub thumb_path: Option<String>,
     pub user_species: Option<String>,
 }

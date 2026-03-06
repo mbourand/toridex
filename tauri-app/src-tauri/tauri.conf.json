@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Bird Pokédex",
+        "title": "ToriDex",
         "width": 1280,
         "height": 800
       }

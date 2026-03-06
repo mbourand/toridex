@@ -15,6 +15,7 @@ export interface PhotoResult {
   exif_lat?: number;
   exif_lon?: number;
   top_k?: Array<{ scientificName: string; confidence: number }>;
+  fileMtime?: number;
   thumbPath?: string;
   userSpecies?: string;
   modelSpecies?: string;
