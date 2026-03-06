@@ -1,5 +1,5 @@
 [package]
-name = "tauri-app"
+name = "toridex"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "tauri_app_lib"
+name = "toridex_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -26,10 +26,10 @@ serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "bmp"] }
 kamadak-exif = "0.5"
-tokio = { version = "1", features = ["rt", "fs", "io-util"] }
+tokio = { version = "1", features = ["rt"] }
 rayon = "1.11.0"
-reqwest = { version = "0.12", features = ["stream"] }
-futures-util = "0.3"
+log = "0.4"
+tauri-plugin-log = "2"
 
 # Optimize dependencies in dev builds — critical for image processing and tensor ops
 # which are 10-50x slower without optimization. App code stays debuggable.

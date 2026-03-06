@@ -17,9 +17,18 @@ pub fn data_dir(app: &AppHandle) -> PathBuf {
     }
 }
 
-/// Directory for downloaded/local models.
+/// Directory for model files.
+/// In dev: project data/models/ folder.
+/// In release: bundled as Tauri resources next to the executable.
 pub fn models_dir(app: &AppHandle) -> PathBuf {
-    data_dir(app).join("models")
+    if cfg!(debug_assertions) {
+        dev_project_dir().join("data/models")
+    } else {
+        app.path()
+            .resource_dir()
+            .expect("Failed to resolve resource_dir")
+            .join("resources/models")
+    }
 }
 
 /// Directory for generated thumbnails.

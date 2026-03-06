@@ -33,19 +33,34 @@ pub struct LabelConflict {
 #[tauri::command]
 pub fn load_species_db(app: AppHandle) -> Result<serde_json::Value, String> {
     let path = crate::paths::species_db_path(&app);
+    log::info!("load_species_db: path={}", path.display());
     let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Could not read species_db.json: {e}"))?;
-    serde_json::from_str(&content).map_err(|e| format!("Invalid species_db.json: {e}"))
+        .map_err(|e| {
+            log::error!("load_species_db: failed to read: {e}");
+            format!("Could not read species_db.json: {e}")
+        })?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        log::error!("load_species_db: failed to parse: {e}");
+        format!("Invalid species_db.json: {e}")
+    })?;
+    if let Some(arr) = parsed.as_array() {
+        log::info!("load_species_db: loaded {} species", arr.len());
+    }
+    Ok(parsed)
 }
 
 #[tauri::command]
 pub fn load_scan_results(app: AppHandle, db: tauri::State<'_, DbState>) -> Result<Option<serde_json::Value>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let photos = db::photos::get_all_photos(&conn);
+    log::info!("load_scan_results: {} photos in DB", photos.len());
     if photos.is_empty() {
         return Ok(None);
     }
     let data_dir = crate::paths::data_dir(&app);
+    let with_thumbs = photos.iter().filter(|p| p.thumb_path.is_some()).count();
+    log::info!("load_scan_results: {} have thumbnails, {} without", with_thumbs, photos.len() - with_thumbs);
+    log::info!("load_scan_results: data_dir={}", data_dir.display());
 
     let mut photos_map = serde_json::Map::new();
     for photo in &photos {

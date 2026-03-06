@@ -48,11 +48,13 @@ pub fn prepare_scan(
     db: tauri::State<'_, DbState>,
     folders: Vec<String>,
 ) -> Result<PreparedScan, String> {
+    log::info!("prepare_scan: {} folder(s): {:?}", folders.len(), folders);
     if folders.is_empty() {
         return Err("No folders configured".to_string());
     }
 
     let image_paths = collect_images(&folders);
+    log::info!("prepare_scan: {} images found on disk", image_paths.len());
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
     let mut to_process = Vec::new();
@@ -94,6 +96,7 @@ pub fn prepare_scan(
         }
     }
 
+    log::info!("prepare_scan: {} to process, {} skipped (unchanged)", to_process.len(), skipped_count);
     Ok(PreparedScan {
         to_process,
         skipped_count,
@@ -113,6 +116,7 @@ pub fn store_photo_result(
     file_size: i64,
     top_k_json: Option<String>,
 ) -> Result<(), String> {
+    log::info!("store_photo_result: {} → {} ({:.1}%)", path, species, confidence * 100.0);
     let exif_data = exif::extract_exif(Path::new(&path));
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -136,6 +140,10 @@ pub fn store_photo_result(
 #[tauri::command]
 pub fn get_model_paths(app: AppHandle) -> ModelPaths {
     let models_dir = crate::paths::models_dir(&app);
+    log::info!("get_model_paths: models_dir={}", models_dir.display());
+    log::info!("  detector exists: {}", models_dir.join("bird_detector.onnx").exists());
+    log::info!("  classifier exists: {}", models_dir.join("bird_classifier.onnx").exists());
+    log::info!("  label_map exists: {}", models_dir.join("label_map.json").exists());
     ModelPaths {
         detector: models_dir
             .join("bird_detector.onnx")
@@ -159,9 +167,12 @@ pub async fn finalize_scan(
     db: tauri::State<'_, DbState>,
     folders: Vec<String>,
 ) -> Result<(), String> {
+    log::info!("finalize_scan: starting for {} folder(s)", folders.len());
     let image_paths = collect_images(&folders);
+    log::info!("finalize_scan: {} images on disk", image_paths.len());
 
     // Remove stale entries
+    let stale_count;
     {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let db_paths = db::photos::get_photo_paths_in_folders(&conn, &folders);
@@ -169,6 +180,7 @@ pub async fn finalize_scan(
             .iter()
             .map(|p| normalize_path(&p.to_string_lossy()))
             .collect();
+        stale_count = db_paths.iter().filter(|p| !current_set.contains(&normalize_path(p))).count();
         for db_path in &db_paths {
             if !current_set.contains(&normalize_path(db_path)) {
                 let _ = conn.execute(
@@ -178,13 +190,16 @@ pub async fn finalize_scan(
             }
         }
     }
+    log::info!("finalize_scan: removed {} stale DB entries", stale_count);
 
     // Generate thumbnails on a background thread to avoid blocking the UI
     let thumbs_dir = crate::paths::thumbs_dir(&app);
+    log::info!("finalize_scan: thumbs_dir={}", thumbs_dir.display());
     let needing_thumbs = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         db::photos::get_photos_needing_thumbnails(&conn)
     };
+    log::info!("finalize_scan: {} photos need thumbnails", needing_thumbs.len());
     if !needing_thumbs.is_empty() {
         let app_clone = app.clone();
         let generated = tokio::task::spawn_blocking(move || {
@@ -193,14 +208,19 @@ pub async fn finalize_scan(
             })
         })
         .await
-        .map_err(|e: tokio::task::JoinError| e.to_string())?;
+        .map_err(|e: tokio::task::JoinError| {
+            log::error!("finalize_scan: thumbnail task failed: {e}");
+            e.to_string()
+        })?;
 
+        log::info!("finalize_scan: {} thumbnails generated successfully", generated.len());
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         for (orig, thumb_name) in &generated {
             let _ = db::photos::set_thumb_path(&conn, orig, thumb_name);
         }
     }
 
+    log::info!("finalize_scan: done");
     Ok(())
 }
 
@@ -214,6 +234,7 @@ fn collect_images(folders: &[String]) -> Vec<PathBuf> {
     for folder in folders {
         let dir = Path::new(folder);
         if !dir.is_dir() {
+            log::warn!("collect_images: folder not found or not a directory: {folder}");
             continue;
         }
         collect_images_recursive(dir, &mut paths, &mut seen);

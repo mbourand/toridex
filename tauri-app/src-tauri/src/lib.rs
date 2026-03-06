@@ -1,6 +1,5 @@
 mod commands;
 mod db;
-mod download;
 mod exif;
 mod paths;
 mod scan;
@@ -9,10 +8,19 @@ mod thumbs;
 use db::DbState;
 use std::sync::Mutex;
 use tauri::Manager;
+use tauri_plugin_log::{Target, TargetKind};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::LogDir { file_name: Some("app".into()) }),
+                    Target::new(TargetKind::Stdout),
+                ])
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -21,14 +29,21 @@ pub fn run() {
             // Ensure data directories exist
             let data = paths::data_dir(&handle);
             std::fs::create_dir_all(&data).ok();
-            std::fs::create_dir_all(data.join("models")).ok();
             std::fs::create_dir_all(data.join("thumbs")).ok();
+
+            log::info!("=== App started ===");
+            log::info!("Data dir: {}", data.display());
+            log::info!("Thumbs dir: {}", paths::thumbs_dir(&handle).display());
+            log::info!("Models dir: {}", paths::models_dir(&handle).display());
+            log::info!("Species DB: {}", paths::species_db_path(&handle).display());
 
             // Initialize SQLite
             let db_path = paths::db_path(&handle);
+            log::info!("DB path: {}", db_path.display());
             let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
             app.manage(DbState(Mutex::new(conn)));
 
+            log::info!("Setup complete");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,8 +67,6 @@ pub fn run() {
             scan::store_photo_result,
             scan::get_model_paths,
             scan::finalize_scan,
-            download::check_models,
-            download::download_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

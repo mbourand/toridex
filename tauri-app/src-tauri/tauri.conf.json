@@ -36,7 +36,10 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../data/species_db.json": "resources/species_db.json"
+      "../../data/species_db.json": "resources/species_db.json",
+      "../../data/models/bird_detector.onnx": "resources/models/bird_detector.onnx",
+      "../../data/models/bird_classifier.onnx": "resources/models/bird_classifier.onnx",
+      "../../data/models/label_map.json": "resources/models/label_map.json"
     }
   }
 }

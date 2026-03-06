@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { info as logInfo, error as logError } from "@tauri-apps/plugin-log";
 
 import {
   Species,
@@ -11,7 +12,6 @@ import {
   SortMode,
   PreparedScan,
   ModelPaths,
-  ModelStatus,
   FullRescanInfo,
   LabelConflict,
 } from "../types";
@@ -69,21 +69,26 @@ export default function useBirdData() {
   useEffect(() => {
     async function load() {
       try {
+        logInfo("[init] Loading species DB...");
         setSpecies(await invoke<Species[]>("load_species_db"));
-        setScanResults(
-          await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
-        );
+        logInfo("[init] Loading scan results...");
+        const results = await invoke<Record<string, PhotoResult> | null>("load_scan_results");
+        setScanResults(results);
+        logInfo(`[init] Scan results: ${results ? Object.keys(results).length : 0} photos`);
         const cfg = await invoke<AppConfig>("load_config");
         setConfig(cfg);
+        logInfo(`[init] Config: ${cfg.folders.length} folder(s)`);
         setFrontPhotos(await invoke<Record<string, string>>("get_front_photos"));
 
         // Check for missing photos on disk
         const missingPaths = await invoke<string[]>("check_missing_photos");
+        logInfo(`[init] Missing photos: ${missingPaths.length}`);
         if (missingPaths.length > 0) {
           setMissingPhotos(missingPaths);
           setShowMissingPhotosModal(true);
         }
       } catch (e) {
+        logError(`[init] Error: ${String(e)}`);
         setError(String(e));
       } finally {
         setLoading(false);
@@ -286,50 +291,41 @@ export default function useBirdData() {
 
     try {
       // Step 1: Prepare — collect image paths, filter unchanged
+      logInfo(`[scan] Step 1: prepare_scan for ${foldersToScan.length} folder(s)`);
       const prepared = await invoke<PreparedScan>("prepare_scan", {
         folders: foldersToScan,
       });
+      logInfo(`[scan] Prepared: ${prepared.toProcess.length} to process, ${prepared.skippedCount} skipped`);
 
       if (prepared.toProcess.length === 0) {
+        logInfo("[scan] Nothing to process, running finalize_scan only");
         await invoke("finalize_scan", { folders: foldersToScan });
         return;
       }
 
-      // Step 2: Download models if needed, then load in Web Worker
-      const status = await invoke<ModelStatus>("check_models");
-      if (!status.detectorReady || !status.classifierReady || !status.labelMapReady) {
-        setModelStatus("Téléchargement des modèles...");
-        let unlistenDl: UnlistenFn | undefined;
-        try {
-          unlistenDl = await listen<{ file: string; downloaded: number; total: number }>(
-            "download-progress",
-            (e) => {
-              const { file, downloaded, total } = e.payload;
-              const pct = total > 0 ? Math.round((downloaded / total) * 100) : 0;
-              const mb = (downloaded / 1_048_576).toFixed(0);
-              const totalMb = (total / 1_048_576).toFixed(0);
-              setModelStatus(`Téléchargement ${file}... ${mb}/${totalMb} Mo (${pct}%)`);
-            },
-          );
-          await invoke("download_models");
-        } finally {
-          unlistenDl?.();
-        }
-      }
-
+      // Step 2: Load models in Web Worker
+      logInfo("[scan] Step 2: Loading models...");
       const modelPaths = await invoke<ModelPaths>("get_model_paths");
+      logInfo(`[scan] Model paths: detector=${modelPaths.detector}, classifier=${modelPaths.classifier}`);
       await initInferenceWorker(
         convertFileSrc(modelPaths.detector),
         convertFileSrc(modelPaths.classifier),
         convertFileSrc(modelPaths.labelMap),
         setModelStatus,
       );
+      logInfo("[scan] Models loaded successfully");
 
       // Step 3: Process each image (inference runs in worker, UI stays responsive)
       const total = prepared.toProcess.length;
+      logInfo(`[scan] Step 3: Processing ${total} images...`);
+      let successCount = 0;
+      let failCount = 0;
 
       for (let i = 0; i < total; i++) {
-        if (abort.signal.aborted) break;
+        if (abort.signal.aborted) {
+          logInfo(`[scan] Aborted at ${i}/${total}`);
+          break;
+        }
 
         const file = prepared.toProcess[i];
         setProgress({ current: i + 1, total });
@@ -356,12 +352,16 @@ export default function useBirdData() {
             fileSize: result.fileSize,
             topKJson: result.topKJson,
           });
+          successCount++;
         } catch (err) {
-          console.error(`Failed to process ${file.path}:`, err);
+          failCount++;
+          logError(`[scan] Failed to process ${file.path}: ${err}`);
         }
       }
+      logInfo(`[scan] Inference done: ${successCount} succeeded, ${failCount} failed`);
 
       // Step 4: Cleanup + thumbnails
+      logInfo("[scan] Step 4: finalize_scan (cleanup + thumbnails)...");
       let unlistenThumbs: UnlistenFn | undefined;
       try {
         unlistenThumbs = await listen<{ current: number; total: number }>(
@@ -369,20 +369,23 @@ export default function useBirdData() {
           (e) => setThumbProgress(e.payload),
         );
         await invoke("finalize_scan", { folders: foldersToScan });
+        logInfo("[scan] finalize_scan completed");
       } finally {
         unlistenThumbs?.();
         setThumbProgress(null);
       }
     } catch (e) {
-      console.error("Scan error:", e);
+      logError(`[scan] Scan error: ${e}`);
     } finally {
       setScanning(false);
       setProgress(null);
       setModelStatus("");
       abortRef.current = null;
-      setScanResults(
-        await invoke<Record<string, PhotoResult> | null>("load_scan_results"),
-      );
+      logInfo("[scan] Reloading scan results...");
+      const reloaded = await invoke<Record<string, PhotoResult> | null>("load_scan_results");
+      logInfo(`[scan] Reloaded: ${reloaded ? Object.keys(reloaded).length : 0} photos`);
+      setScanResults(reloaded);
+      logInfo("[scan] Scan complete");
     }
   }
 

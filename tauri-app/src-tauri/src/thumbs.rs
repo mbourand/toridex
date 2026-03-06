@@ -27,9 +27,11 @@ pub fn generate_thumbnails(
     thumbs_dir: &Path,
     on_progress: impl Fn(usize, usize) + Sync,
 ) -> Vec<(String, String)> {
+    log::info!("generate_thumbnails: {} photos, dir={}", paths.len(), thumbs_dir.display());
     fs::create_dir_all(thumbs_dir).ok();
     let total = paths.len();
     let done = AtomicUsize::new(0);
+    let failed = AtomicUsize::new(0);
 
     let results: Vec<_> = paths
         .par_iter()
@@ -43,7 +45,8 @@ pub fn generate_thumbnails(
                 match generate_one(original, &dest) {
                     Ok(()) => true,
                     Err(e) => {
-                        eprintln!("Thumbnail failed for {original}: {e}");
+                        log::warn!("Thumbnail failed for {original}: {e}");
+                        failed.fetch_add(1, Ordering::Relaxed);
                         false
                     }
                 }
@@ -56,6 +59,8 @@ pub fn generate_thumbnails(
         })
         .collect();
 
+    let fail_count = failed.load(Ordering::Relaxed);
+    log::info!("generate_thumbnails: done — {} succeeded, {} failed", results.len(), fail_count);
     results
 }
 

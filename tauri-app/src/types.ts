@@ -48,12 +48,6 @@ export interface ModelPaths {
   labelMap: string;
 }
 
-export interface ModelStatus {
-  detectorReady: boolean;
-  classifierReady: boolean;
-  labelMapReady: boolean;
-}
-
 export interface FullRescanInfo {
   purgedCount: number;
   totalRemaining: number;
