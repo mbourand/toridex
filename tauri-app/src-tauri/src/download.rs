@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 /// Base URL for model downloads from GitHub Releases.
 /// Update this to your actual GitHub release URL before building.
 const GITHUB_RELEASE_BASE: &str =
-    "https://github.com/OWNER/REPO/releases/download/models-v1";
+    "https://github.com/mbourand/toridex/releases/download/models-v1";
 
 /// Files to download from the release.
 const MODEL_FILES: &[&str] = &[

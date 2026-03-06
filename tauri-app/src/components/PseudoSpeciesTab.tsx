@@ -74,6 +74,7 @@ export default function PseudoSpeciesTab({
         <DetailModal
           title={title}
           photos={sorted}
+          initialIndex={selectedIdx}
           speciesDisplay={speciesDisplay}
           allSpecies={allSpecies}
           onSetSpecies={async (path, sp) => {

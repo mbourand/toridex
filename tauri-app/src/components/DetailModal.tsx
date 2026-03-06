@@ -21,6 +21,7 @@ interface Props {
   frontPhotoPath?: string | null;
   /** Called to set or clear the front photo. Pass null to unset. */
   onSetFrontPhoto?: (path: string | null) => void;
+  initialIndex?: number;
   onClose: () => void;
 }
 
@@ -35,9 +36,10 @@ export default function DetailModal({
   onSetSpecies,
   frontPhotoPath,
   onSetFrontPhoto,
+  initialIndex = 0,
   onClose,
 }: Props) {
-  const [idx, setIdx] = useState(0);
+  const [idx, setIdx] = useState(initialIndex);
   const [showPicker, setShowPicker] = useState(false);
 
   const hasPhotos = photos.length > 0;
