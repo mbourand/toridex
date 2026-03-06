@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS photos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_photos_folder ON photos(folder);
+
+CREATE TABLE IF NOT EXISTS species_front_photo (
+    scientific_name TEXT PRIMARY KEY,
+    photo_path      TEXT NOT NULL
+);
 ";
 
 // ---------------------------------------------------------------------------

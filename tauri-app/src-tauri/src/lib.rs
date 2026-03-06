@@ -39,6 +39,8 @@ pub fn run() {
             commands::load_config,
             commands::save_config,
             commands::set_user_species,
+            commands::set_front_photo,
+            commands::get_front_photos,
             commands::remove_folder_photos,
             commands::check_missing_photos,
             commands::relocate_missing_photos,

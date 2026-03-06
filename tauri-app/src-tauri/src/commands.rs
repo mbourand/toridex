@@ -482,6 +482,33 @@ pub fn resolve_label_conflicts(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Front photo (cover image per species)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn set_front_photo(
+    db: tauri::State<'_, DbState>,
+    scientific_name: String,
+    photo_path: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    match photo_path {
+        Some(path) => db::photos::set_front_photo(&conn, &scientific_name, &path)
+            .map_err(|e| e.to_string()),
+        None => db::photos::clear_front_photo(&conn, &scientific_name)
+            .map_err(|e| e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn get_front_photos(
+    db: tauri::State<'_, DbState>,
+) -> Result<HashMap<String, String>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    Ok(db::photos::get_all_front_photos(&conn))
+}
+
 /// Recursively index all image files in a directory by lowercase filename.
 /// Stores (normalized_path, file_size) for each file so we can match by size.
 fn index_folder_recursive(dir: &Path, index: &mut HashMap<String, Vec<(String, i64)>>) {

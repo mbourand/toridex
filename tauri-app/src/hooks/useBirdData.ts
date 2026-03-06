@@ -57,6 +57,9 @@ export default function useBirdData() {
   const [labelConflicts, setLabelConflicts] = useState<LabelConflict[]>([]);
   const [showLabelConflictModal, setShowLabelConflictModal] = useState(false);
 
+  // Front photo (cover image per species)
+  const [frontPhotos, setFrontPhotos] = useState<Record<string, string>>({});
+
   const [selected, setSelected] = useState<Species | null>(null);
 
   // Abort controller for cancelling scans
@@ -72,6 +75,7 @@ export default function useBirdData() {
         );
         const cfg = await invoke<AppConfig>("load_config");
         setConfig(cfg);
+        setFrontPhotos(await invoke<Record<string, string>>("get_front_photos"));
 
         // Check for missing photos on disk
         const missingPaths = await invoke<string[]>("check_missing_photos");
@@ -112,11 +116,19 @@ export default function useBirdData() {
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push({ path, result });
     }
-    for (const arr of map.values()) {
+    for (const [speciesName, arr] of map.entries()) {
       arr.sort((a, b) => b.result.confidence - a.result.confidence);
+      const frontPath = frontPhotos[speciesName];
+      if (frontPath) {
+        const frontIdx = arr.findIndex((p) => p.path === frontPath);
+        if (frontIdx > 0) {
+          const [front] = arr.splice(frontIdx, 1);
+          arr.unshift(front);
+        }
+      }
     }
     return map;
-  }, [scanResults]);
+  }, [scanResults, frontPhotos]);
 
   const PSEUDO_SPECIES = new Set(["__unknown__", "__skipped__", "__no_bird__", "__unlisted__"]);
 
@@ -397,6 +409,19 @@ export default function useBirdData() {
     }
   }
 
+  async function handleSetFrontPhoto(scientificName: string, photoPath: string | null) {
+    await invoke("set_front_photo", { scientificName, photoPath });
+    setFrontPhotos((prev) => {
+      const next = { ...prev };
+      if (photoPath) {
+        next[scientificName] = photoPath;
+      } else {
+        delete next[scientificName];
+      }
+      return next;
+    });
+  }
+
   async function handleSetUserSpecies(path: string, species: string | null) {
     await invoke("set_user_species", { path, species });
     setScanResults(
@@ -463,6 +488,9 @@ export default function useBirdData() {
     cancelScan,
     // Manual categorization
     handleSetUserSpecies,
+    // Front photo
+    frontPhotos,
+    handleSetFrontPhoto,
     // Label conflicts
     labelConflicts,
     showLabelConflictModal,

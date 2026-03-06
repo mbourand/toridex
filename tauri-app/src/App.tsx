@@ -21,6 +21,7 @@ export default function App() {
     handleAddSearchFolder, handleMissingPhotosDone, handleSkipMissingPhotos,
     handleAddFolder, handleRemoveFolder, handleScan, handleFullRescan, cancelScan,
     handleSetUserSpecies,
+    frontPhotos, handleSetFrontPhoto,
     labelConflicts, showLabelConflictModal, handleResolveConflicts,
   } = useBirdData();
 
@@ -177,6 +178,8 @@ export default function App() {
             await handleSetUserSpecies(path, sp);
             setSelected(null);
           }}
+          frontPhotoPath={frontPhotos[selected.scientificName] ?? null}
+          onSetFrontPhoto={(path) => handleSetFrontPhoto(selected.scientificName, path)}
           onClose={() => setSelected(null)}
         />
       )}

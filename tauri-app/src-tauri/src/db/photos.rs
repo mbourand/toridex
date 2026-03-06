@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -270,4 +271,44 @@ pub fn set_thumb_path(conn: &Connection, path: &str, thumb_path: &str) -> rusqli
         params![thumb_path, path],
     )?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Front photo (cover image per species)
+// ---------------------------------------------------------------------------
+
+pub fn set_front_photo(
+    conn: &Connection,
+    scientific_name: &str,
+    photo_path: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO species_front_photo(scientific_name, photo_path) VALUES(?1, ?2)
+         ON CONFLICT(scientific_name) DO UPDATE SET photo_path = excluded.photo_path",
+        params![scientific_name, photo_path],
+    )?;
+    Ok(())
+}
+
+pub fn clear_front_photo(
+    conn: &Connection,
+    scientific_name: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM species_front_photo WHERE scientific_name = ?1",
+        params![scientific_name],
+    )?;
+    Ok(())
+}
+
+pub fn get_all_front_photos(conn: &Connection) -> HashMap<String, String> {
+    let mut stmt = conn
+        .prepare("SELECT scientific_name, photo_path FROM species_front_photo")
+        .unwrap();
+    stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .unwrap()
+    .filter_map(|r| r.ok())
+    .collect()
 }
