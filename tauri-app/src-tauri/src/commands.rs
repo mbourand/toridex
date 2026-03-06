@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::params;
 use serde::Serialize;
@@ -30,37 +30,22 @@ pub struct LabelConflict {
     pub thumb_path: Option<String>,
 }
 
-/// Absolute path to the bird-classification project root (resolved at compile time).
-const PROJECT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-
-pub(crate) fn project_dir() -> PathBuf {
-    let p = PathBuf::from(PROJECT_DIR);
-    let canon = p.canonicalize().unwrap_or(p);
-    // Strip \\?\ prefix that canonicalize() adds on Windows — it breaks asset:// URLs
-    let s = canon.to_string_lossy();
-    if let Some(stripped) = s.strip_prefix(r"\\?\") {
-        PathBuf::from(stripped)
-    } else {
-        canon
-    }
-}
-
 #[tauri::command]
-pub fn load_species_db() -> Result<serde_json::Value, String> {
-    let path = project_dir().join("data/species_db.json");
+pub fn load_species_db(app: AppHandle) -> Result<serde_json::Value, String> {
+    let path = crate::paths::species_db_path(&app);
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Could not read species_db.json: {e}"))?;
     serde_json::from_str(&content).map_err(|e| format!("Invalid species_db.json: {e}"))
 }
 
 #[tauri::command]
-pub fn load_scan_results(db: tauri::State<'_, DbState>) -> Result<Option<serde_json::Value>, String> {
+pub fn load_scan_results(app: AppHandle, db: tauri::State<'_, DbState>) -> Result<Option<serde_json::Value>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let photos = db::photos::get_all_photos(&conn);
     if photos.is_empty() {
         return Ok(None);
     }
-    let data_dir = project_dir().join("data");
+    let data_dir = crate::paths::data_dir(&app);
 
     let mut photos_map = serde_json::Map::new();
     for photo in &photos {
@@ -103,8 +88,8 @@ pub fn load_scan_results(db: tauri::State<'_, DbState>) -> Result<Option<serde_j
 }
 
 #[tauri::command]
-pub fn get_data_dir() -> String {
-    project_dir().join("data").to_string_lossy().into_owned()
+pub fn get_data_dir(app: AppHandle) -> String {
+    crate::paths::data_dir(&app).to_string_lossy().into_owned()
 }
 
 /// Open a native folder-picker dialog and return the selected path.
@@ -140,6 +125,7 @@ pub fn set_user_species(
 
 #[tauri::command]
 pub fn remove_folder_photos(
+    app: AppHandle,
     db: tauri::State<'_, DbState>,
     folder: String,
     remaining_folders: Vec<String>,
@@ -148,7 +134,7 @@ pub fn remove_folder_photos(
 
     // For each photo in the removed folder, check if another folder still covers it
     let photo_paths = db::photos::get_photo_paths_in_folders(&conn, &[folder.clone()]);
-    let thumbs_dir = project_dir().join("data/thumbs");
+    let thumbs_dir = crate::paths::thumbs_dir(&app);
 
     for path in &photo_paths {
         let norm = path.replace('\\', "/");
@@ -206,6 +192,7 @@ pub fn check_missing_photos(db: tauri::State<'_, DbState>) -> Result<Vec<String>
 /// Returns the list of paths that are still missing after relocation.
 #[tauri::command]
 pub fn relocate_missing_photos(
+    app: AppHandle,
     db: tauri::State<'_, DbState>,
     missing_paths: Vec<String>,
     search_folders: Vec<String>,
@@ -221,7 +208,7 @@ pub fn relocate_missing_photos(
     }
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let thumbs_dir = project_dir().join("data/thumbs");
+    let thumbs_dir = crate::paths::thumbs_dir(&app);
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
     let mut still_missing: Vec<String> = Vec::new();
@@ -351,6 +338,7 @@ pub fn relocate_missing_photos(
 /// Delete photos from DB + their thumbnails from disk for all given paths.
 #[tauri::command]
 pub fn purge_missing_photos(
+    app: AppHandle,
     db: tauri::State<'_, DbState>,
     paths: Vec<String>,
 ) -> Result<u64, String> {
@@ -359,7 +347,7 @@ pub fn purge_missing_photos(
     }
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let thumbs_dir = project_dir().join("data/thumbs");
+    let thumbs_dir = crate::paths::thumbs_dir(&app);
     let mut count = 0u64;
 
     for path in &paths {
@@ -383,10 +371,11 @@ pub fn purge_missing_photos(
 /// and reset mtime so every photo gets re-processed by the normal scan pipeline.
 #[tauri::command]
 pub fn prepare_full_rescan(
+    app: AppHandle,
     db: tauri::State<'_, DbState>,
 ) -> Result<FullRescanInfo, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let thumbs_dir = project_dir().join("data/thumbs");
+    let thumbs_dir = crate::paths::thumbs_dir(&app);
 
     // 1. Purge photos whose files no longer exist on disk
     let mut stmt = conn
@@ -435,10 +424,11 @@ pub fn prepare_full_rescan(
 /// Return photos where the user's manual label disagrees with the model prediction.
 #[tauri::command]
 pub fn get_label_conflicts(
+    app: AppHandle,
     db: tauri::State<'_, DbState>,
 ) -> Result<Vec<LabelConflict>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let data_dir = project_dir().join("data");
+    let data_dir = crate::paths::data_dir(&app);
 
     let mut stmt = conn
         .prepare(

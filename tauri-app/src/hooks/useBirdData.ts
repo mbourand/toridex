@@ -11,6 +11,7 @@ import {
   SortMode,
   PreparedScan,
   ModelPaths,
+  ModelStatus,
   FullRescanInfo,
   LabelConflict,
 } from "../types";
@@ -282,7 +283,28 @@ export default function useBirdData() {
         return;
       }
 
-      // Step 2: Load models in Web Worker
+      // Step 2: Download models if needed, then load in Web Worker
+      const status = await invoke<ModelStatus>("check_models");
+      if (!status.detectorReady || !status.classifierReady || !status.labelMapReady) {
+        setModelStatus("Téléchargement des modèles...");
+        let unlistenDl: UnlistenFn | undefined;
+        try {
+          unlistenDl = await listen<{ file: string; downloaded: number; total: number }>(
+            "download-progress",
+            (e) => {
+              const { file, downloaded, total } = e.payload;
+              const pct = total > 0 ? Math.round((downloaded / total) * 100) : 0;
+              const mb = (downloaded / 1_048_576).toFixed(0);
+              const totalMb = (total / 1_048_576).toFixed(0);
+              setModelStatus(`Téléchargement ${file}... ${mb}/${totalMb} Mo (${pct}%)`);
+            },
+          );
+          await invoke("download_models");
+        } finally {
+          unlistenDl?.();
+        }
+      }
+
       const modelPaths = await invoke<ModelPaths>("get_model_paths");
       await initInferenceWorker(
         convertFileSrc(modelPaths.detector),

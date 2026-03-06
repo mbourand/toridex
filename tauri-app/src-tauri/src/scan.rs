@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::commands::project_dir;
 use crate::db::{self, DbState};
 use crate::exif;
 use crate::thumbs;
@@ -135,8 +134,8 @@ pub fn store_photo_result(
 
 /// Return absolute paths to the model files so the frontend can load them via asset://.
 #[tauri::command]
-pub fn get_model_paths() -> ModelPaths {
-    let models_dir = project_dir().join("data/models");
+pub fn get_model_paths(app: AppHandle) -> ModelPaths {
+    let models_dir = crate::paths::models_dir(&app);
     ModelPaths {
         detector: models_dir
             .join("bird_detector.onnx")
@@ -181,7 +180,7 @@ pub async fn finalize_scan(
     }
 
     // Generate thumbnails on a background thread to avoid blocking the UI
-    let thumbs_dir = project_dir().join("data/thumbs");
+    let thumbs_dir = crate::paths::thumbs_dir(&app);
     let needing_thumbs = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         db::photos::get_photos_needing_thumbnails(&conn)

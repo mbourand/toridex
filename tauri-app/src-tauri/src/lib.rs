@@ -1,26 +1,36 @@
 mod commands;
 mod db;
+mod download;
 mod exif;
+mod paths;
 mod scan;
 mod thumbs;
 
 use db::DbState;
 use std::sync::Mutex;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let project_dir = commands::project_dir();
-
-    // Ensure data directory exists
-    std::fs::create_dir_all(project_dir.join("data")).ok();
-
-    let db_path = project_dir.join("data/birds.db");
-    let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(DbState(Mutex::new(conn)))
+        .setup(|app| {
+            let handle = app.handle().clone();
+
+            // Ensure data directories exist
+            let data = paths::data_dir(&handle);
+            std::fs::create_dir_all(&data).ok();
+            std::fs::create_dir_all(data.join("models")).ok();
+            std::fs::create_dir_all(data.join("thumbs")).ok();
+
+            // Initialize SQLite
+            let db_path = paths::db_path(&handle);
+            let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
+            app.manage(DbState(Mutex::new(conn)));
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::load_species_db,
             commands::load_scan_results,
@@ -40,6 +50,8 @@ pub fn run() {
             scan::store_photo_result,
             scan::get_model_paths,
             scan::finalize_scan,
+            download::check_models,
+            download::download_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
