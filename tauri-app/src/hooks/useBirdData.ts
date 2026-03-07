@@ -330,9 +330,15 @@ export default function useBirdData() {
         const file = prepared.toProcess[i];
         setProgress({ current: i + 1, total });
 
+        let blobUrl: string | undefined;
         try {
+          // Read file bytes via Rust to bypass asset protocol (fails on external drives)
+          const bytes = await invoke<number[]>("read_file_bytes", { path: file.path });
+          const blob = new Blob([new Uint8Array(bytes)]);
+          blobUrl = URL.createObjectURL(blob);
+
           const result = await processImage({
-            url: convertFileSrc(file.path),
+            url: blobUrl,
             path: file.path,
             folder: file.folder,
             fileMtime: file.fileMtime,
@@ -356,6 +362,8 @@ export default function useBirdData() {
         } catch (err) {
           failCount++;
           logError(`[scan] Failed to process ${file.path}: ${err}`);
+        } finally {
+          if (blobUrl) URL.revokeObjectURL(blobUrl);
         }
       }
       logInfo(`[scan] Inference done: ${successCount} succeeded, ${failCount} failed`);

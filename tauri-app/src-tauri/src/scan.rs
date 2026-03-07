@@ -136,6 +136,13 @@ pub fn store_photo_result(
     )
 }
 
+/// Read a file as raw bytes so the frontend can create a Blob URL.
+/// This bypasses the asset protocol, which fails on some external drives.
+#[tauri::command]
+pub fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))
+}
+
 /// Return absolute paths to the model files so the frontend can load them via asset://.
 #[tauri::command]
 pub fn get_model_paths(app: AppHandle) -> ModelPaths {

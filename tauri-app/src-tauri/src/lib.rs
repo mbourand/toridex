@@ -65,6 +65,7 @@ pub fn run() {
             commands::resolve_label_conflicts,
             scan::prepare_scan,
             scan::store_photo_result,
+            scan::read_file_bytes,
             scan::get_model_paths,
             scan::finalize_scan,
         ])
