@@ -75,7 +75,8 @@ def collect_metrics(logits_fn, loader, num_classes: int, device: torch.device) -
     confusion:     dict[tuple[int, int], int] = defaultdict(int)
 
     with torch.no_grad():
-        for images, labels in loader:
+        for batch in loader:
+            images, labels = batch[0], batch[1]
             images, labels = images.to(device), labels.to(device)
             with torch.cuda.amp.autocast():
                 logits = logits_fn(images)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Species, UserPhoto } from "../types";
 import SpeciesPicker from "./SpeciesPicker";
@@ -41,6 +41,17 @@ export default function DetailModal({
 }: Props) {
   const [idx, setIdx] = useState(initialIndex);
   const [showPicker, setShowPicker] = useState(false);
+
+  // Lookup: scientificName → referencePhotoUrl for top-K thumbnails
+  const speciesRefPhoto = useMemo(() => {
+    const map = new Map<string, string>();
+    if (allSpecies) {
+      for (const s of allSpecies) {
+        if (s.referencePhotoUrl) map.set(s.scientificName, s.referencePhotoUrl);
+      }
+    }
+    return map;
+  }, [allSpecies]);
 
   const hasPhotos = photos.length > 0;
   const current = hasPhotos ? photos[idx] : null;
@@ -295,7 +306,8 @@ export default function DetailModal({
                     )}
                   </p>
                   {topK.map((k, i) => {
-                    const row = (
+                    const refUrl = speciesRefPhoto.get(k.scientificName);
+                    return (
                       <div
                         key={i}
                         className={`flex items-center gap-2 ${canEdit ? "cursor-pointer rounded-lg px-1 py-0.5 -mx-1 hover:bg-gray-800 transition-colors" : ""}`}
@@ -305,6 +317,30 @@ export default function DetailModal({
                             : undefined
                         }
                       >
+                        {/* Reference photo thumbnail with hover preview */}
+                        <div className="relative group/thumb shrink-0">
+                          {refUrl ? (
+                            <>
+                              <img
+                                src={refUrl}
+                                alt={k.scientificName}
+                                className="w-6 h-6 rounded object-cover bg-gray-700"
+                              />
+                              <div className="hidden group-hover/thumb:block absolute bottom-full left-0 mb-2 z-50 pointer-events-none">
+                                <img
+                                  src={refUrl}
+                                  alt={k.scientificName}
+                                  className="w-40 h-40 rounded-lg object-cover shadow-xl border border-gray-700"
+                                />
+                                <p className="mt-1 text-[10px] text-gray-300 bg-gray-900/90 rounded px-1.5 py-0.5 text-center truncate max-w-40">
+                                  {speciesDisplay(k.scientificName)}
+                                </p>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="w-6 h-6 rounded bg-gray-700" />
+                          )}
+                        </div>
                         <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-blue-500 rounded-full"
@@ -324,7 +360,6 @@ export default function DetailModal({
                         </span>
                       </div>
                     );
-                    return row;
                   })}
                 </div>
 

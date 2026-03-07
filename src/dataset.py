@@ -37,9 +37,11 @@ def get_transforms(split: str) -> transforms.Compose:
         return transforms.Compose([
             transforms.RandomResizedCrop(224, scale=(0.5, 1.0)),
             transforms.RandomHorizontalFlip(),
+            transforms.RandAugment(num_ops=2, magnitude=9),
             transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.05),
             transforms.ToTensor(),
             transforms.Normalize(_CLIP_MEAN, _CLIP_STD),
+            transforms.RandomErasing(p=0.25, scale=(0.02, 0.2)),
         ])
     else:
         return transforms.Compose([
@@ -55,7 +57,7 @@ def create_splits(
     splits_dir: Path = SPLITS_DIR,
     val_ratio: float = 0.1,
     test_ratio: float = 0.1,
-    min_images: int = 3,
+    min_images: int = 20,
     seed: int = 42,
 ) -> Path:
     """
@@ -94,6 +96,19 @@ def create_splits(
     label_map = {sp: i for i, sp in enumerate(species_sorted)}
     with open(splits_dir / "label_map.json", "w") as f:
         json.dump(label_map, f, indent=2)
+
+    # Build genus and family label maps for taxonomy-aware training
+    genera_sorted = sorted(df["genus"].unique())
+    genus_map = {g: i for i, g in enumerate(genera_sorted)}
+    with open(splits_dir / "genus_map.json", "w") as f:
+        json.dump(genus_map, f, indent=2)
+
+    families_sorted = sorted(df["family"].unique())
+    family_map = {fam: i for i, fam in enumerate(families_sorted)}
+    with open(splits_dir / "family_map.json", "w") as f:
+        json.dump(family_map, f, indent=2)
+
+    print(f"  Taxonomy: {len(label_map)} species, {len(genus_map)} genera, {len(family_map)} families")
 
     # First split off test set, then split remainder into train/val
     test_size = test_ratio
@@ -137,14 +152,34 @@ class BirdDataset(Dataset):
         self.image_dir = image_dir
         self.transform = transform or get_transforms("val")
 
+        splits_dir = Path(split_parquet).parent
         if label_map is None:
-            label_map_path = Path(split_parquet).parent / "label_map.json"
-            with open(label_map_path) as f:
+            with open(splits_dir / "label_map.json") as f:
                 label_map = json.load(f)
         self.label_map = label_map
 
+        # Taxonomy maps (genus / family) — optional, for auxiliary losses
+        genus_map_path = splits_dir / "genus_map.json"
+        family_map_path = splits_dir / "family_map.json"
+        self.genus_map = json.load(open(genus_map_path)) if genus_map_path.exists() else None
+        self.family_map = json.load(open(family_map_path)) if family_map_path.exists() else None
+
     def __len__(self) -> int:
         return len(self.df)
+
+    def get_class_counts(self) -> dict[int, int]:
+        """Return {label_int: count} for building a weighted sampler."""
+        counts: dict[int, int] = {}
+        for name in self.df["scientificName"]:
+            label = self.label_map[name]
+            counts[label] = counts.get(label, 0) + 1
+        return counts
+
+    def get_sample_weights(self) -> list[float]:
+        """Return per-sample weight (1/class_count) for WeightedRandomSampler."""
+        class_counts = self.get_class_counts()
+        labels = [self.label_map[name] for name in self.df["scientificName"]]
+        return [1.0 / class_counts[label] for label in labels]
 
     def __getitem__(self, idx: int):
         row = self.df.iloc[idx]
@@ -158,8 +193,14 @@ class BirdDataset(Dataset):
             # Corrupted / truncated image — return a random other sample
             return self[random.randint(0, len(self) - 1)]
 
-        label = self.label_map[row["scientificName"]]
-        return img, label
+        species_label = self.label_map[row["scientificName"]]
+
+        if self.genus_map is not None and self.family_map is not None:
+            genus_label = self.genus_map[row["genus"]]
+            family_label = self.family_map[row["family"]]
+            return img, species_label, genus_label, family_label
+
+        return img, species_label
 
 
 def verify_images(
