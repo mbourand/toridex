@@ -1,6 +1,7 @@
 export {
   initInferenceWorker,
-  processImage,
+  detectBird,
+  classifyBird,
   terminateInferenceWorker,
 } from "./workerClient";
-export type { ProcessResult } from "./workerClient";
+export type { ProcessResult, DetectResult } from "./workerClient";

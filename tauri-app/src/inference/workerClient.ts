@@ -9,66 +9,122 @@ export interface ProcessResult {
   topKJson?: string;
 }
 
+export interface DetectResult {
+  path: string;
+  bbox: [number, number, number, number] | null;
+}
+
 // ---------------------------------------------------------------------------
 // Module-level state
 // ---------------------------------------------------------------------------
 
-let worker: Worker | null = null;
+let detectorWorker: Worker | null = null;
+let classifierWorker: Worker | null = null;
 let modelsReady = false;
 
-let initResolve: (() => void) | null = null;
-let initReject: ((e: Error) => void) | null = null;
+// Init callbacks (one per worker)
+let detInitResolve: (() => void) | null = null;
+let detInitReject: ((e: Error) => void) | null = null;
+let clsInitResolve: (() => void) | null = null;
+let clsInitReject: ((e: Error) => void) | null = null;
 let statusCallback: ((msg: string) => void) | null = null;
 
-let pendingResolve: ((r: ProcessResult) => void) | null = null;
-let pendingReject: ((e: Error) => void) | null = null;
+// Pending detect/classify callbacks
+let detPendingResolve: ((r: DetectResult) => void) | null = null;
+let detPendingReject: ((e: Error) => void) | null = null;
+let clsPendingResolve: ((r: ProcessResult) => void) | null = null;
+let clsPendingReject: ((e: Error) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Worker lifecycle
 // ---------------------------------------------------------------------------
 
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(new URL("./worker.ts", import.meta.url), {
-      type: "module",
-    });
-    worker.onmessage = handleMessage;
-    worker.onerror = (e) => {
-      const err = new Error(e.message || "Worker error");
-      initReject?.(err);
-      pendingReject?.(err);
-      initResolve = initReject = null;
-      pendingResolve = pendingReject = null;
+function getDetectorWorker(): Worker {
+  if (!detectorWorker) {
+    detectorWorker = new Worker(
+      new URL("./detectorWorker.ts", import.meta.url),
+      { type: "module" },
+    );
+    detectorWorker.onmessage = handleDetectorMessage;
+    detectorWorker.onerror = (e) => {
+      const err = new Error(e.message || "Detector worker error");
+      detInitReject?.(err);
+      detPendingReject?.(err);
+      detInitResolve = detInitReject = null;
+      detPendingResolve = detPendingReject = null;
     };
   }
-  return worker;
+  return detectorWorker;
 }
 
-function handleMessage(e: MessageEvent) {
+function getClassifierWorker(): Worker {
+  if (!classifierWorker) {
+    classifierWorker = new Worker(
+      new URL("./classifierWorker.ts", import.meta.url),
+      { type: "module" },
+    );
+    classifierWorker.onmessage = handleClassifierMessage;
+    classifierWorker.onerror = (e) => {
+      const err = new Error(e.message || "Classifier worker error");
+      clsInitReject?.(err);
+      clsPendingReject?.(err);
+      clsInitResolve = clsInitReject = null;
+      clsPendingResolve = clsPendingReject = null;
+    };
+  }
+  return classifierWorker;
+}
+
+// ---------------------------------------------------------------------------
+// Message handlers
+// ---------------------------------------------------------------------------
+
+function handleDetectorMessage(e: MessageEvent) {
   const msg = e.data;
   switch (msg.type) {
     case "init-status":
       statusCallback?.(msg.status);
       break;
     case "init-done":
-      modelsReady = true;
-      statusCallback?.("");
-      statusCallback = null;
-      initResolve?.();
-      initResolve = initReject = null;
+      detInitResolve?.();
+      detInitResolve = detInitReject = null;
       break;
     case "init-error":
-      statusCallback = null;
-      initReject?.(new Error(msg.error));
-      initResolve = initReject = null;
+      detInitReject?.(new Error(msg.error));
+      detInitResolve = detInitReject = null;
       break;
-    case "result":
-      pendingResolve?.(msg);
-      pendingResolve = pendingReject = null;
+    case "detect-result":
+      detPendingResolve?.(msg);
+      detPendingResolve = detPendingReject = null;
       break;
-    case "error":
-      pendingReject?.(new Error(msg.error));
-      pendingResolve = pendingReject = null;
+    case "detect-error":
+      detPendingReject?.(new Error(msg.error));
+      detPendingResolve = detPendingReject = null;
+      break;
+  }
+}
+
+function handleClassifierMessage(e: MessageEvent) {
+  const msg = e.data;
+  switch (msg.type) {
+    case "init-status":
+      statusCallback?.(msg.status);
+      break;
+    case "init-done":
+      clsInitResolve?.();
+      clsInitResolve = clsInitReject = null;
+      break;
+    case "init-error":
+      clsInitReject?.(new Error(msg.error));
+      clsInitResolve = clsInitReject = null;
+      break;
+    case "classify-result":
+      clsPendingResolve?.(msg);
+      clsPendingResolve = clsPendingReject = null;
+      break;
+    case "classify-error":
+      clsPendingReject?.(new Error(msg.error));
+      clsPendingResolve = clsPendingReject = null;
       break;
   }
 }
@@ -77,7 +133,7 @@ function handleMessage(e: MessageEvent) {
 // Public API
 // ---------------------------------------------------------------------------
 
-/** Load ONNX models in the worker (cached — only loads once). */
+/** Load models in both workers (cached — only loads once). */
 export async function initInferenceWorker(
   detectorUrl: string,
   classifierUrl: string,
@@ -86,45 +142,77 @@ export async function initInferenceWorker(
 ): Promise<void> {
   if (modelsReady) return;
 
-  return new Promise<void>((resolve, reject) => {
-    initResolve = resolve;
-    initReject = reject;
-    statusCallback = onStatus ?? null;
-    getWorker().postMessage({
+  statusCallback = onStatus ?? null;
+
+  // Init both workers in parallel
+  const detReady = new Promise<void>((resolve, reject) => {
+    detInitResolve = resolve;
+    detInitReject = reject;
+    getDetectorWorker().postMessage({ type: "init", detectorUrl });
+  });
+
+  const clsReady = new Promise<void>((resolve, reject) => {
+    clsInitResolve = resolve;
+    clsInitReject = reject;
+    getClassifierWorker().postMessage({
       type: "init",
-      detectorUrl,
       classifierUrl,
       labelMapUrl,
     });
   });
+
+  await Promise.all([detReady, clsReady]);
+  modelsReady = true;
+  statusCallback?.("");
+  statusCallback = null;
 }
 
-/** Process a single image (detect + classify) in the worker. */
-export async function processImage(file: {
+/** Run bird detection on an image. Returns bbox or null. */
+export async function detectBird(input: {
+  url: string;
+  path: string;
+  detectThreshold: number;
+}): Promise<DetectResult> {
+  if (!modelsReady) throw new Error("Models not initialized");
+
+  return new Promise<DetectResult>((resolve, reject) => {
+    detPendingResolve = resolve;
+    detPendingReject = reject;
+    getDetectorWorker().postMessage({ type: "detect", ...input });
+  });
+}
+
+/** Run species classification on a cropped bird image. */
+export async function classifyBird(input: {
   url: string;
   path: string;
   folder: string;
   fileMtime: number;
   fileSize: number;
-  detectThreshold: number;
+  bbox: [number, number, number, number];
   minConfidence: number;
   topK: number;
 }): Promise<ProcessResult> {
   if (!modelsReady) throw new Error("Models not initialized");
 
   return new Promise<ProcessResult>((resolve, reject) => {
-    pendingResolve = resolve;
-    pendingReject = reject;
-    getWorker().postMessage({ type: "process", ...file });
+    clsPendingResolve = resolve;
+    clsPendingReject = reject;
+    getClassifierWorker().postMessage({ type: "classify", ...input });
   });
 }
 
-/** Terminate the worker and release models. */
+/** Terminate both workers and release models. */
 export function terminateInferenceWorker(): void {
-  if (worker) {
-    worker.postMessage({ type: "dispose" });
-    worker.terminate();
-    worker = null;
-    modelsReady = false;
+  if (detectorWorker) {
+    detectorWorker.postMessage({ type: "dispose" });
+    detectorWorker.terminate();
+    detectorWorker = null;
   }
+  if (classifierWorker) {
+    classifierWorker.postMessage({ type: "dispose" });
+    classifierWorker.terminate();
+    classifierWorker = null;
+  }
+  modelsReady = false;
 }

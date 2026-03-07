@@ -15,7 +15,7 @@ import {
   FullRescanInfo,
   LabelConflict,
 } from "../types";
-import { initInferenceWorker, processImage } from "../inference";
+import { initInferenceWorker, detectBird, classifyBird } from "../inference";
 
 const DETECT_THRESHOLD = 0.3;
 const MIN_CONFIDENCE = 0.5;
@@ -315,11 +315,40 @@ export default function useBirdData() {
       );
       logInfo("[scan] Models loaded successfully");
 
-      // Step 3: Process each image (inference runs in worker, UI stays responsive)
+      // Step 3: Process images with prefetch + pipeline
+      // - Prefetch: read next N images from disk while GPU works
+      // - Pipeline: detect image N+1 while classifying image N
       const total = prepared.toProcess.length;
-      logInfo(`[scan] Step 3: Processing ${total} images...`);
+      logInfo(`[scan] Step 3: Processing ${total} images (prefetch + pipeline)...`);
       let successCount = 0;
       let failCount = 0;
+
+      const PREFETCH_AHEAD = 8;
+      type PrefetchedItem = { file: typeof prepared.toProcess[0]; blobUrl: string };
+      const prefetchBuffer: PrefetchedItem[] = [];
+      let prefetchIdx = 0;
+
+      // Fill prefetch buffer (non-blocking — reads files ahead while GPU is busy)
+      async function fillPrefetch() {
+        while (prefetchBuffer.length < PREFETCH_AHEAD && prefetchIdx < total) {
+          if (abort.signal.aborted) break;
+          const file = prepared.toProcess[prefetchIdx++];
+          try {
+            const bytes = await invoke<ArrayBuffer>("read_file_bytes", { path: file.path });
+            const blob = new Blob([bytes]);
+            prefetchBuffer.push({ file, blobUrl: URL.createObjectURL(blob) });
+          } catch (err) {
+            logError(`[scan] Failed to read ${file.path}: ${err}`);
+            failCount++;
+          }
+        }
+      }
+
+      // Seed the prefetch buffer
+      await fillPrefetch();
+
+      // Pipeline: detect overlaps with previous classify
+      let pendingClassify: Promise<void> | null = null;
 
       for (let i = 0; i < total; i++) {
         if (abort.signal.aborted) {
@@ -327,45 +356,93 @@ export default function useBirdData() {
           break;
         }
 
-        const file = prepared.toProcess[i];
+        // Ensure we have prefetched items
+        if (prefetchBuffer.length === 0) await fillPrefetch();
+        if (prefetchBuffer.length === 0) break; // all remaining reads failed
+
+        const item = prefetchBuffer.shift()!;
         setProgress({ current: i + 1, total });
 
-        let blobUrl: string | undefined;
         try {
-          // Read file bytes via Rust to bypass asset protocol (fails on external drives)
-          const bytes = await invoke<number[]>("read_file_bytes", { path: file.path });
-          const blob = new Blob([new Uint8Array(bytes)]);
-          blobUrl = URL.createObjectURL(blob);
+          // Wait for previous classification to finish before reusing classifier
+          if (pendingClassify) await pendingClassify;
 
-          const result = await processImage({
-            url: blobUrl,
-            path: file.path,
-            folder: file.folder,
-            fileMtime: file.fileMtime,
-            fileSize: file.fileSize,
+          // Detect bird in image (detector worker)
+          const detectResult = await detectBird({
+            url: item.blobUrl,
+            path: item.file.path,
             detectThreshold: DETECT_THRESHOLD,
-            minConfidence: MIN_CONFIDENCE,
-            topK: TOP_K,
           });
 
-          await invoke("store_photo_result", {
-            path: result.path,
-            folder: result.folder,
-            species: result.species,
-            speciesIdx: result.speciesIdx,
-            confidence: result.confidence,
-            fileMtime: result.fileMtime,
-            fileSize: result.fileSize,
-            topKJson: result.topKJson,
-          });
-          successCount++;
+          // Kick off prefetch in background (don't await — overlaps with classify)
+          const prefetchPromise = fillPrefetch();
+
+          if (!detectResult.bbox) {
+            // No bird found — store skipped result, free blob
+            URL.revokeObjectURL(item.blobUrl);
+            await invoke("store_photo_result", {
+              path: item.file.path,
+              folder: item.file.folder,
+              species: "__skipped__",
+              speciesIdx: -1,
+              confidence: 0.0,
+              fileMtime: item.file.fileMtime,
+              fileSize: item.file.fileSize,
+            });
+            successCount++;
+            await prefetchPromise;
+            continue;
+          }
+
+          // Classify async — don't await yet, let next detection start immediately
+          const capturedItem = item;
+          const capturedBbox = detectResult.bbox;
+          pendingClassify = (async () => {
+            try {
+              const result = await classifyBird({
+                url: capturedItem.blobUrl,
+                path: capturedItem.file.path,
+                folder: capturedItem.file.folder,
+                fileMtime: capturedItem.file.fileMtime,
+                fileSize: capturedItem.file.fileSize,
+                bbox: capturedBbox,
+                minConfidence: MIN_CONFIDENCE,
+                topK: TOP_K,
+              });
+              await invoke("store_photo_result", {
+                path: result.path,
+                folder: result.folder,
+                species: result.species,
+                speciesIdx: result.speciesIdx,
+                confidence: result.confidence,
+                fileMtime: result.fileMtime,
+                fileSize: result.fileSize,
+                topKJson: result.topKJson,
+              });
+              successCount++;
+            } catch (err) {
+              failCount++;
+              logError(`[scan] Failed to classify ${capturedItem.file.path}: ${err}`);
+            } finally {
+              URL.revokeObjectURL(capturedItem.blobUrl);
+            }
+          })();
+
+          await prefetchPromise;
         } catch (err) {
           failCount++;
-          logError(`[scan] Failed to process ${file.path}: ${err}`);
-        } finally {
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
+          logError(`[scan] Failed to process ${item.file.path}: ${err}`);
+          URL.revokeObjectURL(item.blobUrl);
         }
       }
+
+      // Wait for last classification to complete
+      if (pendingClassify) await pendingClassify;
+
+      // Clean up any remaining prefetched blob URLs (e.g. after abort)
+      for (const item of prefetchBuffer) URL.revokeObjectURL(item.blobUrl);
+      prefetchBuffer.length = 0;
+
       logInfo(`[scan] Inference done: ${successCount} succeeded, ${failCount} failed`);
 
       // Step 4: Cleanup + thumbnails

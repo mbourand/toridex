@@ -137,10 +137,11 @@ pub fn store_photo_result(
 }
 
 /// Read a file as raw bytes so the frontend can create a Blob URL.
-/// This bypasses the asset protocol, which fails on some external drives.
+/// Uses tauri::ipc::Response for efficient binary transfer (avoids JSON serialization).
 #[tauri::command]
-pub fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))
+pub fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+    let data = std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
+    Ok(tauri::ipc::Response::new(data))
 }
 
 /// Return absolute paths to the model files so the frontend can load them via asset://.

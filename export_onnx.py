@@ -1,9 +1,13 @@
 """
-One-time script to export the BirdClassifier and Faster R-CNN detector to ONNX
-for native Rust inference in the Tauri app.
+One-time script to export models to ONNX for the Tauri app.
+
+- Classifier: BioCLIP encoder + linear head (exported from PyTorch)
+- Detector: YOLOv11m (exported via ultralytics at 1280x1280)
 
 Usage:
     python export_onnx.py
+    python export_onnx.py --classifier-only
+    python export_onnx.py --detector-only
 
 Outputs:
     data/models/bird_classifier.onnx
@@ -18,12 +22,47 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 import torch
-from torchvision.models.detection import (
-    FasterRCNN_ResNet50_FPN_V2_Weights,
-    fasterrcnn_resnet50_fpn_v2,
-)
 
 from src.model import BirdClassifier
+
+
+def _patch_for_onnx_export():
+    """Monkey-patch ops unsupported in PyTorch 2.0 ONNX export (unflatten, SDPA)."""
+    import math
+    import torch.nn.functional as F
+
+    originals = {
+        "unflatten": torch.Tensor.unflatten,
+        "sdpa": F.scaled_dot_product_attention,
+    }
+
+    # unflatten → reshape
+    def _unflatten_as_reshape(self, dim, sizes):
+        shape = list(self.shape)
+        if dim < 0:
+            dim += len(shape)
+        new_shape = shape[:dim] + list(sizes) + shape[dim + 1:]
+        return self.reshape(new_shape)
+
+    # SDPA → manual attention (matmul → scale → mask → softmax → matmul)
+    def _manual_sdpa(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False):
+        scale = 1.0 / math.sqrt(query.size(-1))
+        attn = torch.matmul(query, key.transpose(-2, -1)) * scale
+        if attn_mask is not None:
+            attn = attn + attn_mask
+        attn = torch.softmax(attn, dim=-1)
+        return torch.matmul(attn, value)
+
+    torch.Tensor.unflatten = _unflatten_as_reshape
+    F.scaled_dot_product_attention = _manual_sdpa
+    return originals
+
+
+def _restore_patches(originals):
+    """Restore monkey-patched functions."""
+    import torch.nn.functional as F
+    torch.Tensor.unflatten = originals["unflatten"]
+    F.scaled_dot_product_attention = originals["sdpa"]
 
 SPLITS_DIR = Path("data/splits")
 BEST_MODEL_PATH = Path("checkpoints/best_model.pt")
@@ -44,6 +83,9 @@ def export_classifier():
     model = BirdClassifier.load(BEST_MODEL_PATH, num_classes)
     model.eval()
 
+    # Patch unsupported ops for PyTorch 2.0 ONNX compat
+    originals = _patch_for_onnx_export()
+
     dummy = torch.randn(1, 3, 224, 224)
     out_path = OUT_DIR / "bird_classifier.onnx"
 
@@ -51,7 +93,7 @@ def export_classifier():
         model,
         dummy,
         str(out_path),
-        opset_version=14,
+        opset_version=17,
         input_names=["image"],
         output_names=["logits"],
         dynamic_axes={
@@ -74,54 +116,34 @@ def export_classifier():
     assert max_diff < 1e-4, f"Validation failed! max_diff={max_diff}"
     print("  Validation PASSED")
 
+    # Restore patched ops
+    _restore_patches(originals)
+
 
 def export_detector():
-    """Export Faster R-CNN ResNet50 FPN V2 to ONNX."""
+    """Export YOLOv11m to ONNX at 1280x1280."""
     print("=" * 60)
-    print("Exporting Faster R-CNN detector...")
+    print("Exporting YOLOv11m detector...")
 
-    weights = FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
-    detector = fasterrcnn_resnet50_fpn_v2(weights=weights)
-    detector.eval()
+    from ultralytics import YOLO
 
-    # Use a realistic image size for tracing
-    dummy = torch.randn(1, 3, 800, 800)
+    model = YOLO("yolo11m.pt")
+    model.export(format="onnx", imgsz=1280, opset=16, simplify=True, dynamic=False)
+
+    exported = Path("yolo11m.onnx")
     out_path = OUT_DIR / "bird_detector.onnx"
-
-    torch.onnx.export(
-        detector,
-        dummy,
-        str(out_path),
-        opset_version=16,
-        input_names=["images"],
-        output_names=["boxes", "labels", "scores"],
-        dynamic_axes={
-            "images": {0: "batch", 2: "height", 3: "width"},
-            "boxes": {0: "num_detections"},
-            "labels": {0: "num_detections"},
-            "scores": {0: "num_detections"},
-        },
-    )
+    shutil.move(str(exported), str(out_path))
     print(f"  Saved to {out_path} ({out_path.stat().st_size / 1e6:.1f} MB)")
 
-    # Validate: run the same image through both
+    # Validate: check the model loads and has expected inputs/outputs
     print("  Validating...")
-    with torch.no_grad():
-        pt_preds = detector(dummy)[0]
-    pt_boxes = pt_preds["boxes"].numpy()
-    pt_labels = pt_preds["labels"].numpy()
-    pt_scores = pt_preds["scores"].numpy()
-
     sess = ort.InferenceSession(str(out_path))
-    onnx_boxes, onnx_labels, onnx_scores = sess.run(None, {"images": dummy.numpy()})
-
-    print(f"  PyTorch detections: {len(pt_boxes)}, ONNX detections: {len(onnx_boxes)}")
-
-    if len(pt_boxes) > 0 and len(onnx_boxes) > 0:
-        n = min(len(pt_boxes), len(onnx_boxes))
-        box_diff = np.abs(pt_boxes[:n] - onnx_boxes[:n]).max()
-        score_diff = np.abs(pt_scores[:n] - onnx_scores[:n]).max()
-        print(f"  Box max diff: {box_diff:.2e}, Score max diff: {score_diff:.2e}")
+    inputs = {inp.name: inp.shape for inp in sess.get_inputs()}
+    outputs = {out.name: out.shape for out in sess.get_outputs()}
+    print(f"  Inputs:  {inputs}")
+    print(f"  Outputs: {outputs}")
+    assert "images" in inputs, "Expected input 'images'"
+    assert "output0" in outputs, "Expected output 'output0'"
     print("  Validation PASSED")
 
 
@@ -134,11 +156,21 @@ def copy_label_map():
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Export models to ONNX")
+    parser.add_argument("--classifier-only", action="store_true",
+                        help="Only export classifier (skip detector)")
+    parser.add_argument("--detector-only", action="store_true",
+                        help="Only export detector (skip classifier)")
+    args = parser.parse_args()
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    export_classifier()
-    export_detector()
-    copy_label_map()
+    if not args.detector_only:
+        export_classifier()
+        copy_label_map()
+    if not args.classifier_only:
+        export_detector()
 
     print("=" * 60)
     print("All exports complete!")
