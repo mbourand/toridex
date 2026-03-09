@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import SearchFilterBar from "./SearchFilterBar";
 import SpeciesCard from "./SpeciesCard";
 import DetailModal from "./DetailModal";
+import { useVirtualizedGrid } from "../hooks/useVirtualizedGrid";
 
 import { Species, UserPhoto, FilterMode, SortMode } from "../types";
 
@@ -37,6 +39,13 @@ export default function PokedexTab({
   frontPhotos,
   handleSetFrontPhoto,
 }: Props) {
+  const { scrollRef, virtualizer, columns } = useVirtualizedGrid(visible.length, 260);
+
+  // Scroll to top when filter/search/sort changes
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, 0);
+  }, [search, filter, sort]);
+
   return (
     <>
       <SearchFilterBar
@@ -50,22 +59,51 @@ export default function PokedexTab({
         onSort={setSort}
       />
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="p-4">
           {visible.length === 0 ? (
             <div className="text-center text-gray-500 mt-20 text-sm">
               Aucune espèce trouvée.
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {visible.map((s) => (
-                <SpeciesCard
-                  key={s.idx}
-                  species={s}
-                  photos={photosBySpecies.get(s.scientificName) ?? []}
-                  onClick={() => setSelected(s)}
-                />
-              ))}
+            <div
+              style={{
+                height: virtualizer.getTotalSize(),
+                position: "relative",
+                width: "100%",
+              }}
+            >
+              {virtualizer.getVirtualItems().map((vRow) => {
+                const startIdx = vRow.index * columns;
+                const rowItems = visible.slice(startIdx, startIdx + columns);
+                return (
+                  <div
+                    key={vRow.key}
+                    data-index={vRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${vRow.start}px)`,
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                      columnGap: "0.75rem",
+                      paddingBottom: "0.75rem",
+                    }}
+                  >
+                    {rowItems.map((s) => (
+                      <SpeciesCard
+                        key={s.idx}
+                        species={s}
+                        photos={photosBySpecies.get(s.scientificName) ?? []}
+                        onClick={() => setSelected(s)}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

@@ -215,7 +215,7 @@ export default function DetailModal({
 
             {/* Thumbnail strip */}
             {photos.length > 1 && (
-              <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 flex-wrap">
+              <div className="flex gap-1.5 mb-4 overflow-y-auto pb-1 flex-wrap max-h-44">
                 {photos.map((p, i) => (
                   <button
                     key={p.path}
