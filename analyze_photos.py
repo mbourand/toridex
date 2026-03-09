@@ -24,7 +24,7 @@ from torchvision.models.detection import (
     fasterrcnn_resnet50_fpn_v2,
 )
 
-from src.dataset import _CLIP_MEAN, _CLIP_STD
+from src.dataset import INPUT_SIZE, _CLIP_MEAN, _CLIP_STD
 from src.model import BirdClassifier
 
 SPLITS_DIR = Path("data/splits")
@@ -37,14 +37,14 @@ _FALLBACK_RESIZE = 1024
 
 _crop_transform = transforms.Compose([
     transforms.Lambda(lambda img: _pad_to_square(img)),
-    transforms.Resize(224),
+    transforms.Resize(INPUT_SIZE),
     transforms.ToTensor(),
     transforms.Normalize(_CLIP_MEAN, _CLIP_STD),
 ])
 
 _fallback_transform = transforms.Compose([
     transforms.Resize(_FALLBACK_RESIZE),
-    transforms.CenterCrop(224),
+    transforms.CenterCrop(INPUT_SIZE),
     transforms.ToTensor(),
     transforms.Normalize(_CLIP_MEAN, _CLIP_STD),
 ])

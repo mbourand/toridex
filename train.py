@@ -15,6 +15,7 @@ Improvements over baseline:
   - Early stopping on val Top-1
   - Gradient clipping (max_norm=1.0)
   - Taxonomy-aware auxiliary loss (genus + family heads)
+  - Confusion-aware hard-negative mining (phase 2, boosts confused species)
 
 Usage:
     python train.py
@@ -171,6 +172,56 @@ def run_epoch(
     return total_loss / n
 
 
+def compute_confusion_boost(
+    model: BirdClassifier,
+    val_loader: DataLoader,
+    num_classes: int,
+    device: torch.device,
+    boost_factor: float = 3.0,
+) -> dict[int, float]:
+    """
+    Build confusion matrix on val set, return per-class sampling boost.
+
+    Confused species (high error rate) get higher boost → more training samples.
+    Boost formula: 1 + boost_factor * error_rate
+    """
+    model.eval()
+    confusion = torch.zeros(num_classes, num_classes, dtype=torch.int64)
+
+    with torch.no_grad():
+        for batch in tqdm(val_loader, leave=False, desc="confusion"):
+            images, labels = batch[0], batch[1]
+            images, labels = images.to(device), labels.to(device)
+            with torch.cuda.amp.autocast():
+                logits = model(images)
+            preds = logits.argmax(dim=1)
+            for t, p in zip(labels.cpu(), preds.cpu()):
+                confusion[t.item(), p.item()] += 1
+
+    boost: dict[int, float] = {}
+    for i in range(num_classes):
+        total = confusion[i].sum().item()
+        if total == 0:
+            boost[i] = 1.0
+            continue
+        error_rate = 1.0 - confusion[i, i].item() / total
+        boost[i] = 1.0 + boost_factor * error_rate
+    return boost
+
+
+def update_sampler_weights(train_loader: DataLoader, boost: dict[int, float]) -> None:
+    """Multiply base class-balance weights by confusion boost."""
+    ds = train_loader.dataset
+    sampler = train_loader.sampler
+    base_counts = ds.get_class_counts()
+    labels = [ds.label_map[name] for name in ds.df["scientificName"]]
+    new_weights = torch.tensor(
+        [boost.get(label, 1.0) / base_counts[label] for label in labels],
+        dtype=torch.float64,
+    )
+    sampler.weights = new_weights
+
+
 def train_phase(
     phase: int,
     model: BirdClassifier,
@@ -186,6 +237,7 @@ def train_phase(
     mixup_fn=None,
     num_genera: int = 0,
     num_families: int = 0,
+    hard_mining: bool = False,
 ) -> float:
     """Train one phase. Returns the best val Top-1 accuracy achieved."""
     print(f"\n{'=' * 60}")
@@ -247,6 +299,14 @@ def train_phase(
             f"val loss {val_loss:.4f} top1 {val_top1:.3f} top5 {val_top5:.3f}"
         )
 
+        # Hard-negative mining: boost confused species in sampler
+        if hard_mining and epoch >= warmup_epochs:
+            boost = compute_confusion_boost(model, val_loader, num_classes, device)
+            update_sampler_weights(train_loader, boost)
+            n_boosted = sum(1 for b in boost.values() if b > 1.5)
+            if n_boosted:
+                print(f"    Hard-mining: {n_boosted} confused species boosted (max {max(boost.values()):.1f}x)")
+
         if val_top1 > best_val_top1:
             best_val_top1 = val_top1
             epochs_without_improvement = 0
@@ -306,6 +366,7 @@ def main() -> None:
     parser.add_argument("--patience",       type=int,   default=7,     help="Early stopping patience (epochs)")
     parser.add_argument("--min-images",     type=int,   default=20,    help="Min images per species (drop if fewer)")
     parser.add_argument("--no-mixup",       action="store_true",       help="Disable MixUp/CutMix")
+    parser.add_argument("--no-hard-mining", action="store_true",       help="Disable confusion-aware hard-negative mining")
     parser.add_argument("--resume",         type=str,   default=None,  help="Path to checkpoint to resume from")
     args = parser.parse_args()
 
@@ -389,6 +450,7 @@ def main() -> None:
             mixup_fn=mixup_fn,
             num_genera=num_genera,
             num_families=num_families,
+            hard_mining=not args.no_hard_mining,
         )
 
     # Final evaluation on test set using best checkpoint

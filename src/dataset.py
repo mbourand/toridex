@@ -31,11 +31,14 @@ _CLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
 _CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
 
 
+INPUT_SIZE = 336  # ViT-B/16 input resolution (21×21 patches at patch_size=16)
+
+
 def get_transforms(split: str) -> transforms.Compose:
     """Return the appropriate transform pipeline for train / val / test."""
     if split == "train":
         return transforms.Compose([
-            transforms.RandomResizedCrop(224, scale=(0.5, 1.0)),
+            transforms.RandomResizedCrop(INPUT_SIZE, scale=(0.5, 1.0)),
             transforms.RandomHorizontalFlip(),
             transforms.RandAugment(num_ops=2, magnitude=9),
             transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.05),
@@ -45,8 +48,8 @@ def get_transforms(split: str) -> transforms.Compose:
         ])
     else:
         return transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(384),
+            transforms.CenterCrop(INPUT_SIZE),
             transforms.ToTensor(),
             transforms.Normalize(_CLIP_MEAN, _CLIP_STD),
         ])

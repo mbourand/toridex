@@ -30,7 +30,7 @@ from torchvision.models.detection import (
 )
 from tqdm import tqdm
 
-from src.dataset import _CLIP_MEAN, _CLIP_STD
+from src.dataset import INPUT_SIZE, _CLIP_MEAN, _CLIP_STD
 from src.french_names import load_french_names
 from src.model import BirdClassifier
 
@@ -53,7 +53,7 @@ _FALLBACK_RESIZE = 1024
 # of a tall/narrow bird — then resize to 224.
 _crop_transform = transforms.Compose([
     transforms.Lambda(lambda img: _pad_to_square(img)),
-    transforms.Resize(224),
+    transforms.Resize(INPUT_SIZE),
     transforms.ToTensor(),
     transforms.Normalize(_CLIP_MEAN, _CLIP_STD),
 ])
@@ -61,7 +61,7 @@ _crop_transform = transforms.Compose([
 # Transform for the fallback (no detection) — full image with large resize.
 _fallback_transform = transforms.Compose([
     transforms.Resize(_FALLBACK_RESIZE),
-    transforms.CenterCrop(224),
+    transforms.CenterCrop(INPUT_SIZE),
     transforms.ToTensor(),
     transforms.Normalize(_CLIP_MEAN, _CLIP_STD),
 ])

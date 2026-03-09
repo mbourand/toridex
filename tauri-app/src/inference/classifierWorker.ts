@@ -11,7 +11,7 @@ function post(msg: unknown) {
 const CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073];
 const CLIP_STD = [0.26862954, 0.26130258, 0.27577711];
 const BBOX_PADDING = 0.15;
-const TEMPERATURE = 0.74; // calibrated via calibrate.py — sharpens underconfident logits
+const TEMPERATURE = 0.65; // calibrated via calibrate.py — sharpens underconfident logits
 
 // ---------------------------------------------------------------------------
 // State
@@ -21,7 +21,7 @@ let classifier: ort.InferenceSession | null = null;
 let idxToName = new Map<number, string>();
 
 // Pre-allocated buffer for classifier preprocessing (reused across images)
-const CLS_SIZE = 224;
+const CLS_SIZE = 336;
 const CLS_PIXELS = CLS_SIZE * CLS_SIZE;
 const clsFloat32 = new Float32Array(3 * CLS_PIXELS);
 const clsCanvas = new OffscreenCanvas(CLS_SIZE, CLS_SIZE);
@@ -122,20 +122,28 @@ async function handleClassify(msg: {
     const img = await createImageBitmap(blob);
     const tLoad = performance.now();
 
-    // Crop bbox + preprocess for CLIP
-    const input = cropAndPreprocess(img, msg.bbox);
-    img.close();
+    // TTA: run normal + horizontally flipped, average logits
+    const input1 = cropAndPreprocess(img, msg.bbox, false);
     const tPrep = performance.now();
 
-    const classResults = await classifier.run({ image: input });
-    input.dispose();
+    const res1 = await classifier.run({ image: input1 });
+    input1.dispose();
+
+    const input2 = cropAndPreprocess(img, msg.bbox, true);
+    img.close();
+
+    const res2 = await classifier.run({ image: input2 });
+    input2.dispose();
     const tRun = performance.now();
 
-    const logits = classResults.logits.data as Float32Array;
-    classResults.logits.dispose();
-
-    // Temperature scaling: divide logits by T before softmax
-    for (let i = 0; i < logits.length; i++) logits[i] /= TEMPERATURE;
+    const logits1 = res1.logits.data as Float32Array;
+    const logits2 = res2.logits.data as Float32Array;
+    const logits = new Float32Array(logits1.length);
+    for (let i = 0; i < logits.length; i++) {
+      logits[i] = (logits1[i] + logits2[i]) / (2 * TEMPERATURE);
+    }
+    res1.logits.dispose();
+    res2.logits.dispose();
 
     const probs = softmax(logits);
 
@@ -210,10 +218,11 @@ function handleDispose() {
 // Preprocessing
 // ---------------------------------------------------------------------------
 
-/** Crop bbox with padding → pad to square → resize 224 → CLIP normalize. Uses pre-allocated buffers. */
+/** Crop bbox with padding → pad to square → resize → CLIP normalize. Uses pre-allocated buffers. */
 function cropAndPreprocess(
   img: ImageBitmap,
   bbox: [number, number, number, number],
+  flip: boolean,
 ): ort.Tensor {
   const [x1, y1, x2, y2] = bbox;
   const bw = x2 - x1;
@@ -233,6 +242,12 @@ function cropAndPreprocess(
 
   clsCtx.fillStyle = "rgb(128,128,128)";
   clsCtx.fillRect(0, 0, CLS_SIZE, CLS_SIZE);
+
+  if (flip) {
+    clsCtx.save();
+    clsCtx.translate(CLS_SIZE, 0);
+    clsCtx.scale(-1, 1);
+  }
   clsCtx.drawImage(
     img,
     cx1,
@@ -244,13 +259,17 @@ function cropAndPreprocess(
     cropW * scale,
     cropH * scale,
   );
+  if (flip) {
+    clsCtx.restore();
+  }
 
   const imageData = clsCtx.getImageData(0, 0, CLS_SIZE, CLS_SIZE);
   const rgba = imageData.data;
   for (let i = 0; i < CLS_PIXELS; i++) {
     const base = i * 4;
     clsFloat32[i] = (rgba[base] / 255 - CLIP_MEAN[0]) / CLIP_STD[0];
-    clsFloat32[CLS_PIXELS + i] = (rgba[base + 1] / 255 - CLIP_MEAN[1]) / CLIP_STD[1];
+    clsFloat32[CLS_PIXELS + i] =
+      (rgba[base + 1] / 255 - CLIP_MEAN[1]) / CLIP_STD[1];
     clsFloat32[2 * CLS_PIXELS + i] =
       (rgba[base + 2] / 255 - CLIP_MEAN[2]) / CLIP_STD[2];
   }

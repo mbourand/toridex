@@ -86,7 +86,7 @@ def export_classifier():
     # Patch unsupported ops for PyTorch 2.0 ONNX compat
     originals = _patch_for_onnx_export()
 
-    dummy = torch.randn(1, 3, 224, 224)
+    dummy = torch.randn(1, 3, 336, 336)
     out_path = OUT_DIR / "bird_classifier.onnx"
 
     torch.onnx.export(

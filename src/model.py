@@ -14,9 +14,13 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+from src.dataset import INPUT_SIZE
 
 BIOCLIP_MODEL_ID = "hf-hub:imageomics/bioclip"
 ENCODER_DIM = 512  # ViT-B/16 output dimension
+_PATCH_SIZE = 16
 
 
 class BirdClassifier(nn.Module):
@@ -32,6 +36,7 @@ class BirdClassifier(nn.Module):
         import open_clip
         clip_model, _, _ = open_clip.create_model_and_transforms(BIOCLIP_MODEL_ID)
         self.encoder = clip_model.visual
+        self._interpolate_pos_embed(INPUT_SIZE)
         self.head = nn.Linear(ENCODER_DIM, num_classes)
 
         # Taxonomy auxiliary heads (training-time regularizers)
@@ -41,6 +46,30 @@ class BirdClassifier(nn.Module):
         if freeze_encoder:
             for p in self.encoder.parameters():
                 p.requires_grad = False
+
+    def _interpolate_pos_embed(self, input_size: int) -> None:
+        """Interpolate positional embeddings for input sizes != 224."""
+        pos_embed = self.encoder.positional_embedding  # (num_pos, dim)
+        orig_grid = int((pos_embed.shape[0] - 1) ** 0.5)  # 14 for 224
+        new_grid = input_size // _PATCH_SIZE  # 21 for 336
+
+        if orig_grid == new_grid:
+            return
+
+        cls_embed = pos_embed[:1]  # (1, dim)
+        patch_embed = pos_embed[1:]  # (orig_grid^2, dim)
+        dim = patch_embed.shape[-1]
+
+        patch_embed = patch_embed.reshape(1, orig_grid, orig_grid, dim).permute(0, 3, 1, 2)
+        patch_embed = F.interpolate(
+            patch_embed.float(), size=(new_grid, new_grid),
+            mode="bicubic", align_corners=False,
+        ).to(pos_embed.dtype)
+        patch_embed = patch_embed.permute(0, 2, 3, 1).reshape(-1, dim)
+
+        self.encoder.positional_embedding = nn.Parameter(
+            torch.cat([cls_embed, patch_embed], dim=0)
+        )
 
     def unfreeze_last_n_blocks(self, n: int = 4) -> None:
         """Unfreeze the last n transformer blocks of the ViT for phase-2 fine-tuning."""
@@ -110,6 +139,25 @@ class BirdClassifier(nn.Module):
             num_genera=num_genera, num_families=num_families,
         )
         checkpoint = torch.load(path, map_location="cpu")
+        state_dict = checkpoint["state_dict"]
+
+        # Handle checkpoint from different input size (pos embed shape mismatch)
+        pos_key = "encoder.positional_embedding"
+        if pos_key in state_dict:
+            ckpt_pos = state_dict[pos_key]
+            model_pos = model.encoder.positional_embedding
+            if ckpt_pos.shape != model_pos.shape:
+                orig_grid = int((ckpt_pos.shape[0] - 1) ** 0.5)
+                new_grid = int((model_pos.shape[0] - 1) ** 0.5)
+                cls_emb = ckpt_pos[:1]
+                patch_emb = ckpt_pos[1:].reshape(1, orig_grid, orig_grid, -1).permute(0, 3, 1, 2)
+                patch_emb = F.interpolate(
+                    patch_emb.float(), size=(new_grid, new_grid),
+                    mode="bicubic", align_corners=False,
+                ).to(ckpt_pos.dtype)
+                patch_emb = patch_emb.permute(0, 2, 3, 1).reshape(-1, patch_emb.shape[1])
+                state_dict[pos_key] = torch.cat([cls_emb, patch_emb], dim=0)
+
         # strict=False so checkpoints without taxonomy heads still load fine
-        model.load_state_dict(checkpoint["state_dict"], strict=False)
+        model.load_state_dict(state_dict, strict=False)
         return model
