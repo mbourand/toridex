@@ -163,6 +163,9 @@ def main() -> None:
     parser.add_argument("--min-confidence", type=float, default=0.5,
                         help="Minimum top-1 confidence to assign a species. Below this, "
                              "the photo is kept but marked as __unknown__.")
+    parser.add_argument("--min-margin", type=float, default=0.2,
+                        help="Minimum gap between top-1 and top-2 confidence. Below this, "
+                             "the model is confused between species → marked as __unknown__.")
     parser.add_argument("--top", type=int, default=1)
     parser.add_argument("--incremental", action="store_true",
                         help="Skip files unchanged since last scan (by mtime+size)")
@@ -275,7 +278,9 @@ def main() -> None:
         top1_idx = top_indices[0][0].item()
         top1_prob = top_probs[0][0].item()
 
-        uncertain = top1_prob < args.min_confidence
+        top2_prob = top_probs[0][1].item() if top_probs.shape[1] > 1 else 0.0
+        margin = top1_prob - top2_prob
+        uncertain = top1_prob < args.min_confidence or margin < args.min_margin
         entry: dict = {
             "species_idx": top1_idx,
             "scientificName": "__unknown__" if uncertain else idx_to_sciname.get(top1_idx, str(top1_idx)),

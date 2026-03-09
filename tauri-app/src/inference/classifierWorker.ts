@@ -102,6 +102,7 @@ async function handleClassify(msg: {
   fileSize: number;
   bbox: [number, number, number, number];
   minConfidence: number;
+  minMargin: number;
   topK: number;
 }) {
   try {
@@ -173,8 +174,9 @@ async function handleClassify(msg: {
     }
 
     const top1 = topK[0];
-    const species =
-      top1.confidence < msg.minConfidence ? "__unknown__" : top1.speciesName;
+    const margin = topK.length >= 2 ? top1.confidence - topK[1].confidence : 1.0;
+    const uncertain = top1.confidence < msg.minConfidence || margin < msg.minMargin;
+    const species = uncertain ? "__unknown__" : top1.speciesName;
 
     const topKJson = JSON.stringify(
       topK.map((p) => ({

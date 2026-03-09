@@ -19,6 +19,7 @@ import { initInferenceWorker, detectBird, classifyBird } from "../inference";
 
 const DETECT_THRESHOLD = 0.3;
 const MIN_CONFIDENCE = 0.5;
+const MIN_MARGIN = 0.35; // top1 - top2 gap: below this the model is "confused between species"
 const TOP_K = 5;
 
 export default function useBirdData() {
@@ -49,7 +50,9 @@ export default function useBirdData() {
   // Missing photos state
   const [missingPhotos, setMissingPhotos] = useState<string[]>([]);
   const [showMissingPhotosModal, setShowMissingPhotosModal] = useState(false);
-  const [missingPhotosStatus, setMissingPhotosStatus] = useState<"pending" | "searching" | "done">("pending");
+  const [missingPhotosStatus, setMissingPhotosStatus] = useState<
+    "pending" | "searching" | "done"
+  >("pending");
   const [relocatedPhotosCount, setRelocatedPhotosCount] = useState(0);
   const [purgedPhotosCount, setPurgedPhotosCount] = useState(0);
 
@@ -72,13 +75,19 @@ export default function useBirdData() {
         logInfo("[init] Loading species DB...");
         setSpecies(await invoke<Species[]>("load_species_db"));
         logInfo("[init] Loading scan results...");
-        const results = await invoke<Record<string, PhotoResult> | null>("load_scan_results");
+        const results = await invoke<Record<string, PhotoResult> | null>(
+          "load_scan_results",
+        );
         setScanResults(results);
-        logInfo(`[init] Scan results: ${results ? Object.keys(results).length : 0} photos`);
+        logInfo(
+          `[init] Scan results: ${results ? Object.keys(results).length : 0} photos`,
+        );
         const cfg = await invoke<AppConfig>("load_config");
         setConfig(cfg);
         logInfo(`[init] Config: ${cfg.folders.length} folder(s)`);
-        setFrontPhotos(await invoke<Record<string, string>>("get_front_photos"));
+        setFrontPhotos(
+          await invoke<Record<string, string>>("get_front_photos"),
+        );
 
         // Check for missing photos on disk
         const missingPaths = await invoke<string[]>("check_missing_photos");
@@ -135,13 +144,21 @@ export default function useBirdData() {
     return map;
   }, [scanResults, frontPhotos]);
 
-  const PSEUDO_SPECIES = new Set(["__unknown__", "__skipped__", "__no_bird__", "__unlisted__"]);
+  const PSEUDO_SPECIES = new Set([
+    "__unknown__",
+    "__skipped__",
+    "__no_bird__",
+    "__unlisted__",
+  ]);
 
   const unknownPhotos = photosBySpecies.get("__unknown__") ?? [];
-  const noBirdPhotos = useMemo(() => [
-    ...(photosBySpecies.get("__skipped__") ?? []),
-    ...(photosBySpecies.get("__no_bird__") ?? []),
-  ], [photosBySpecies]);
+  const noBirdPhotos = useMemo(
+    () => [
+      ...(photosBySpecies.get("__skipped__") ?? []),
+      ...(photosBySpecies.get("__no_bird__") ?? []),
+    ],
+    [photosBySpecies],
+  );
   const unlistedPhotos = photosBySpecies.get("__unlisted__") ?? [];
   const foundCount = [...photosBySpecies.keys()].filter(
     (k) => !PSEUDO_SPECIES.has(k),
@@ -291,11 +308,15 @@ export default function useBirdData() {
 
     try {
       // Step 1: Prepare — collect image paths, filter unchanged
-      logInfo(`[scan] Step 1: prepare_scan for ${foldersToScan.length} folder(s)`);
+      logInfo(
+        `[scan] Step 1: prepare_scan for ${foldersToScan.length} folder(s)`,
+      );
       const prepared = await invoke<PreparedScan>("prepare_scan", {
         folders: foldersToScan,
       });
-      logInfo(`[scan] Prepared: ${prepared.toProcess.length} to process, ${prepared.skippedCount} skipped`);
+      logInfo(
+        `[scan] Prepared: ${prepared.toProcess.length} to process, ${prepared.skippedCount} skipped`,
+      );
 
       if (prepared.toProcess.length === 0) {
         logInfo("[scan] Nothing to process, running finalize_scan only");
@@ -306,7 +327,9 @@ export default function useBirdData() {
       // Step 2: Load models in Web Worker
       logInfo("[scan] Step 2: Loading models...");
       const modelPaths = await invoke<ModelPaths>("get_model_paths");
-      logInfo(`[scan] Model paths: detector=${modelPaths.detector}, classifier=${modelPaths.classifier}`);
+      logInfo(
+        `[scan] Model paths: detector=${modelPaths.detector}, classifier=${modelPaths.classifier}`,
+      );
       await initInferenceWorker(
         convertFileSrc(modelPaths.detector),
         convertFileSrc(modelPaths.classifier),
@@ -319,12 +342,17 @@ export default function useBirdData() {
       // - Prefetch: read next N images from disk while GPU works
       // - Pipeline: detect image N+1 while classifying image N
       const total = prepared.toProcess.length;
-      logInfo(`[scan] Step 3: Processing ${total} images (prefetch + pipeline)...`);
+      logInfo(
+        `[scan] Step 3: Processing ${total} images (prefetch + pipeline)...`,
+      );
       let successCount = 0;
       let failCount = 0;
 
       const PREFETCH_AHEAD = 8;
-      type PrefetchedItem = { file: typeof prepared.toProcess[0]; blobUrl: string };
+      type PrefetchedItem = {
+        file: (typeof prepared.toProcess)[0];
+        blobUrl: string;
+      };
       const prefetchBuffer: PrefetchedItem[] = [];
       let prefetchIdx = 0;
 
@@ -334,7 +362,9 @@ export default function useBirdData() {
           if (abort.signal.aborted) break;
           const file = prepared.toProcess[prefetchIdx++];
           try {
-            const bytes = await invoke<ArrayBuffer>("read_file_bytes", { path: file.path });
+            const bytes = await invoke<ArrayBuffer>("read_file_bytes", {
+              path: file.path,
+            });
             const blob = new Blob([bytes]);
             prefetchBuffer.push({ file, blobUrl: URL.createObjectURL(blob) });
           } catch (err) {
@@ -407,6 +437,7 @@ export default function useBirdData() {
                 fileSize: capturedItem.file.fileSize,
                 bbox: capturedBbox,
                 minConfidence: MIN_CONFIDENCE,
+                minMargin: MIN_MARGIN,
                 topK: TOP_K,
               });
               await invoke("store_photo_result", {
@@ -422,7 +453,9 @@ export default function useBirdData() {
               successCount++;
             } catch (err) {
               failCount++;
-              logError(`[scan] Failed to classify ${capturedItem.file.path}: ${err}`);
+              logError(
+                `[scan] Failed to classify ${capturedItem.file.path}: ${err}`,
+              );
             } finally {
               URL.revokeObjectURL(capturedItem.blobUrl);
             }
@@ -443,7 +476,9 @@ export default function useBirdData() {
       for (const item of prefetchBuffer) URL.revokeObjectURL(item.blobUrl);
       prefetchBuffer.length = 0;
 
-      logInfo(`[scan] Inference done: ${successCount} succeeded, ${failCount} failed`);
+      logInfo(
+        `[scan] Inference done: ${successCount} succeeded, ${failCount} failed`,
+      );
 
       // Step 4: Cleanup + thumbnails
       logInfo("[scan] Step 4: finalize_scan (cleanup + thumbnails)...");
@@ -467,8 +502,12 @@ export default function useBirdData() {
       setModelStatus("");
       abortRef.current = null;
       logInfo("[scan] Reloading scan results...");
-      const reloaded = await invoke<Record<string, PhotoResult> | null>("load_scan_results");
-      logInfo(`[scan] Reloaded: ${reloaded ? Object.keys(reloaded).length : 0} photos`);
+      const reloaded = await invoke<Record<string, PhotoResult> | null>(
+        "load_scan_results",
+      );
+      logInfo(
+        `[scan] Reloaded: ${reloaded ? Object.keys(reloaded).length : 0} photos`,
+      );
       setScanResults(reloaded);
       logInfo("[scan] Scan complete");
     }
@@ -497,7 +536,10 @@ export default function useBirdData() {
     }
   }
 
-  async function handleSetFrontPhoto(scientificName: string, photoPath: string | null) {
+  async function handleSetFrontPhoto(
+    scientificName: string,
+    photoPath: string | null,
+  ) {
     await invoke("set_front_photo", { scientificName, photoPath });
     setFrontPhotos((prev) => {
       const next = { ...prev };

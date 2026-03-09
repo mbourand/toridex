@@ -191,6 +191,7 @@ export async function classifyBird(input: {
   fileSize: number;
   bbox: [number, number, number, number];
   minConfidence: number;
+  minMargin: number;
   topK: number;
 }): Promise<ProcessResult> {
   if (!modelsReady) throw new Error("Models not initialized");
